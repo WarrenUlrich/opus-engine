@@ -7,6 +7,24 @@
 #include <numbers>
 
 namespace math {
+/**
+ * @class quaternion
+ * @brief A mathematical representation of a quaternion, used in 3D rotations
+ * and orientation.
+ *
+ * Quaternions provide an efficient way to handle rotations in 3D space without
+ * the problems of gimbal lock that arise with Euler angles. They are also
+ * computationally more efficient than matrices for concatenating rotations.
+ *
+ * This class supports basic quaternion operations, such as multiplication,
+ * normalization, conjugation, and spherical linear interpolation (SLERP). It is
+ * designed for use in applications like computer graphics, physics simulations,
+ * and robotics.
+ *
+ * @tparam Numeric The numeric type used (e.g., float or double). Supports both
+ * floating-point and integral types, but floating-point types (float, double)
+ * are recommended.
+ */
 template <typename Numeric = float>
   requires std::is_floating_point_v<Numeric> || std::is_integral_v<Numeric>
 class quaternion {
@@ -98,6 +116,13 @@ public:
     return *this;
   }
 
+  /**
+   * @brief Checks if two quaternions are approximately equal, within a
+   * tolerance.
+   * @param other The quaternion to compare.
+   * @param epsilon The tolerance value.
+   * @return True if the quaternions are approximately equal, false otherwise.
+   */
   constexpr bool approx_equal(
       const quat_type &other,
       numeric_type epsilon =
@@ -125,12 +150,40 @@ public:
 
   constexpr quat_type inverse() const noexcept { return conjugate() / norm(); }
 
+  /**
+   * @brief Rotates a 3D vector using the quaternion's rotation.
+   *
+   * This function applies the rotation represented by the quaternion to a given
+   * 3D vector. It is equivalent to rotating the vector in 3D space according to
+   * the quaternion's orientation. This is particularly useful in 3D graphics to
+   * rotate objects or camera directions.
+   *
+   * @param v The 3D vector to rotate.
+   * @return A new 3D vector, rotated by the quaternion.
+   */
   constexpr vec3_type rotate(const vec3_type &v) const noexcept {
     quat_type q_v(0, v.x, v.y, v.z);
     quat_type result = (*this) * q_v * inverse();
     return {result.x, result.y, result.z};
   }
 
+  /**
+   * @brief Creates a quaternion that represents a rotation around a given axis
+   * by a specific angle.
+   *
+   * This function takes a 3D unit vector (axis) and an angle (in radians) as
+   * input and produces a quaternion that rotates around that axis by the given
+   * angle. It is commonly used to construct rotations for animation,
+   * orientation, or object manipulation in 3D graphics. The axis should be
+   * normalized (i.e., have a length of 1) for correct behavior.
+   *
+   * @param axis A normalized 3D vector representing the rotation axis.
+   * @param angle_rad The rotation angle in radians (e.g., π/2 for 90 degrees).
+   * @return A quaternion representing the specified rotation.
+   *
+   * @note If the axis is not normalized, the resulting rotation may not behave
+   * as expected.
+   */
   static constexpr quat_type from_axis_angle(const vec3_type &axis,
                                              numeric_type angle_rad) noexcept {
     numeric_type half_angle = angle_rad / 2;
@@ -138,6 +191,23 @@ public:
     return {std::cos(half_angle), axis.x * s, axis.y * s, axis.z * s};
   }
 
+  /**
+   * @brief Converts the quaternion to an axis-angle representation.
+   *
+   * This function extracts the axis of rotation and the angle (in radians) that
+   * the quaternion represents. The quaternion should ideally be normalized for
+   * meaningful results. This conversion is useful for situations where you need
+   * to express rotations in a more intuitive way (e.g., rotating an object
+   * around a particular axis by a specific amount).
+   *
+   * @param axis Output parameter that will store the rotation axis (as a 3D
+   * vector).
+   * @param angle_rad Output parameter that will store the rotation angle in
+   * radians.
+   *
+   * @note If the quaternion represents no rotation (identity quaternion), the
+   * axis will default to (1, 0, 0).
+   */
   constexpr void to_axis_angle(vec3_type &axis,
                                numeric_type &angle_rad) const noexcept {
     quat_type q = normalized();
@@ -149,7 +219,23 @@ public:
       axis = {q.x / s, q.y / s, q.z / s};
     }
   }
-
+  
+  /**
+   * @brief Performs spherical linear interpolation (SLERP) between two
+   * quaternions.
+   *
+   * SLERP smoothly interpolates between two rotations (represented by
+   * quaternions) along the shortest path on a 4D hypersphere. This is often
+   * used in animations or smooth transitions between orientations.
+   *
+   * @param other The target quaternion to interpolate towards.
+   * @param t A value between 0.0 and 1.0 indicating the interpolation factor
+   *          (0.0 = start quaternion, 1.0 = target quaternion).
+   * @return The interpolated quaternion at the given interpolation factor.
+   *
+   * @note If the quaternions are very close to each other, a linear
+   * interpolation might be performed instead to avoid precision issues.
+   */
   constexpr quat_type slerp(const quat_type &other,
                             numeric_type t) const noexcept {
     numeric_type dot_product = dot(other);

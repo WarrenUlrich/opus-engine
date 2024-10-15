@@ -5,10 +5,9 @@
 
 namespace scene {
 
-template <gfx::render_backend Backend>
 class mesh_instance3d {
 public:
-  using mesh_type = gfx::mesh<Backend>;
+  using mesh_type = gfx::mesh;
 
   std::shared_ptr<mesh_type> mesh;
 

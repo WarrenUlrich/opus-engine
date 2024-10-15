@@ -65,6 +65,7 @@ public:
 
   // Unary operators
   constexpr vec_type operator+() const noexcept { return {+x, +y, +z}; }
+
   constexpr vec_type operator-() const noexcept { return {-x, -y, -z}; }
 
   // Arithmetic operators

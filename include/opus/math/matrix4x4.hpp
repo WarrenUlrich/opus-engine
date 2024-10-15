@@ -12,6 +12,27 @@
 
 namespace math {
 
+/**
+ * @class matrix4x4
+ * @brief A 4x4 matrix class primarily used for 3D transformations such as
+ * translation, scaling, rotation, and projections.
+ *
+ * The `matrix4x4` class represents a 4x4 matrix, which is essential in computer
+ * graphics for transforming 3D objects (e.g., translating, rotating, scaling,
+ * and projecting them). This class supports common matrix operations like
+ * multiplication and transposition, as well as generating specialized
+ * transformation matrices.
+ *
+ * A 4x4 matrix is often used in homogeneous coordinates to enable translations
+ * along with other linear transformations. The class offers both basic and
+ * advanced transformations, like generating rotation matrices around specific
+ * axes or creating projection matrices for 3D rendering. It also provides
+ * utility functions to convert between matrices and quaternions.
+ *
+ * @tparam Numeric The underlying numeric type (e.g., float or double). Supports
+ * both floating-point and integral types, although floating-point types are
+ * more suitable for 3D graphics.
+ */
 template <typename Numeric = float>
   requires std::is_floating_point_v<Numeric> || std::is_integral_v<Numeric>
 class matrix4x4 {
@@ -24,9 +45,18 @@ public:
       std::is_same_v<numeric_type, double>;
 
   // Static matrices
-  constexpr static mat_type zero() noexcept { return mat_type{}; }
+  consteval static mat_type zero() noexcept { return mat_type{}; }
 
-  constexpr static mat_type identity() noexcept {
+  /**
+   * @brief Creates an identity matrix.
+   *
+   * The identity matrix has 1s along the diagonal and 0s elsewhere. It
+   * represents a "no transformation" matrix and serves as the neutral element
+   * for matrix multiplication.
+   *
+   * @return A 4x4 identity matrix.
+   */
+  consteval static mat_type identity() noexcept {
     mat_type result{};
     for (int i = 0; i < 4; ++i) {
       result.m[i][i] = static_cast<numeric_type>(1);
@@ -181,7 +211,30 @@ public:
     return mat_type::identity();
   }
 
-  // Transformation matrices
+  /**
+   * @brief Creates a translation matrix.
+   *
+   * A translation matrix is used to move (translate) objects in 3D space.
+   * It shifts the position of an object along the X, Y, and Z axes based on
+   * the provided offset. This matrix plays a key role in transformations
+   * such as moving objects, characters, or cameras in a 3D scene.
+   *
+   * This function constructs a 4x4 translation matrix based on the given
+   * offset vector. When this matrix is multiplied by a point or object’s
+   * position, the object is moved (translated) by the specified amount along
+   * each axis.
+   *
+   * @param offset A 3D vector (`vec_type`) representing how much to translate
+   *               along each axis:
+   *               - `offset.x`: Amount to translate along the X-axis.
+   *               - `offset.y`: Amount to translate along the Y-axis.
+   *               - `offset.z`: Amount to translate along the Z-axis.
+   *
+   * @return A 4x4 translation matrix, where:
+   *         - The main diagonal is filled with 1s (identity matrix).
+   *         - The last column contains the X, Y, and Z offsets, controlling
+   *           how much to move along each axis.
+   */
   constexpr static mat_type translation(const vec_type &offset) noexcept {
     mat_type result = identity();
     result.m[0][3] = offset.x;
@@ -254,6 +307,36 @@ public:
     return result;
   }
 
+  /**
+   * @brief Creates a perspective projection matrix.
+   *
+   * A perspective projection matrix simulates how the human eye perceives
+   * the world, where objects farther away appear smaller. This matrix is
+   * essential in 3D rendering, mapping 3D points to 2D screen coordinates
+   * while maintaining a sense of depth.
+   *
+   * The matrix ensures that objects between the near and far clipping planes
+   * are visible, while everything outside these planes is clipped (not
+   * rendered). It also scales the scene correctly based on the aspect ratio to
+   * prevent distortion on non-square screens.
+   *
+   * @param fov The field of view (FOV) angle in radians, defining how wide
+   *            the camera's viewing cone is. Larger values give a wide-angle
+   * view, while smaller values zoom in.
+   * @param aspect The aspect ratio of the display (width / height). This
+   * ensures the scene does not look stretched or compressed.
+   * @param near The near clipping plane. Objects closer than this distance
+   *             to the camera will not be rendered.
+   * @param far The far clipping plane. Objects farther than this distance
+   *            from the camera will also not be rendered.
+   *
+   * @return A 4x4 perspective projection matrix, where:
+   *         - The X and Y axes are scaled based on the FOV and aspect ratio.
+   *         - The Z axis is transformed to map the depth correctly between
+   *           the near and far planes.
+   *         - A perspective divide is applied, making distant objects appear
+   * smaller.
+   */
   constexpr static mat_type perspective(numeric_type fov, numeric_type aspect,
                                         numeric_type near,
                                         numeric_type far) noexcept {
