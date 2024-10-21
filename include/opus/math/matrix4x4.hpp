@@ -416,6 +416,38 @@ public:
 
     return result;
   }
+
+  constexpr static mat_type look_at(const vec_type &eye, const vec_type &target,
+                                    const vec_type &up) noexcept {
+    vec_type forward =
+        (eye - target)
+            .normalized(); // Forward vector (camera's "backwards" direction)
+    vec_type right = up.cross(forward).normalized(); // Right vector
+    vec_type camera_up =
+        forward.cross(right); // Recomputed up vector to ensure orthogonality
+
+    mat_type result = identity();
+
+    // Set rotation part of the matrix (top-left 3x3 part)
+    result.m[0][0] = right.x;
+    result.m[1][0] = right.y;
+    result.m[2][0] = right.z;
+
+    result.m[0][1] = camera_up.x;
+    result.m[1][1] = camera_up.y;
+    result.m[2][1] = camera_up.z;
+
+    result.m[0][2] = forward.x;
+    result.m[1][2] = forward.y;
+    result.m[2][2] = forward.z;
+
+    // Set translation part of the matrix (top-right 3x1 part)
+    result.m[3][0] = -right.dot(eye);
+    result.m[3][1] = -camera_up.dot(eye);
+    result.m[3][2] = -forward.dot(eye);
+
+    return result;
+  }
 };
 
 } // namespace math

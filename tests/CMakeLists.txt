@@ -15,3 +15,18 @@ target_link_libraries(
   opengl-test PUBLIC
     opus-engine
 )
+
+add_executable(
+  dawn-test
+    dawn-test/main.cpp
+)
+
+target_compile_features(
+  dawn-test PUBLIC
+   cxx_std_23
+)
+
+target_link_libraries(
+  dawn-test PUBLIC
+    opus-engine
+)

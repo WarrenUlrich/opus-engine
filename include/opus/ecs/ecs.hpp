@@ -37,31 +37,25 @@ public:
   }
 
   template <typename Component>
-  void add_component(entity_id entity,
-                     Component &&component) noexcept {
+  void add_component(entity_id entity, Component &&component) noexcept {
     assert(entity < _component_masks.size());
 
-    auto &component_vector =
-        std::get<std::vector<Component>>(_components);
+    auto &component_vector = std::get<std::vector<Component>>(_components);
 
-    component_vector[entity] =
-        std::forward<Component>(component);
+    component_vector[entity] = std::move(component);
 
-    _component_masks[entity].set(
-        _get_bitset_index<Component>());
+    _component_masks[entity].set(_get_bitset_index<Component>());
   }
 
   template <typename Component>
   bool remove_component(entity_id entity) noexcept {
     assert(entity < _component_masks.size());
 
-    auto &component_vector =
-        std::get<std::vector<Component>>(_components);
+    auto &component_vector = std::get<std::vector<Component>>(_components);
 
     assert(entity <= component_vector.size());
 
-    _component_masks[entity].reset(
-        _get_bitset_index<Component>());
+    _component_masks[entity].reset(_get_bitset_index<Component>());
 
     return true;
   }
@@ -70,22 +64,16 @@ public:
   bool has_component(entity_id entity) const noexcept {
     assert(entity < _component_masks.size());
 
-    constexpr auto bitset_idx =
-        _get_bitset_index<Component>();
+    constexpr auto bitset_idx = _get_bitset_index<Component>();
     return _component_masks[entity].test(bitset_idx);
   }
 
   template <typename... QueryComponents>
   bool has_components(entity_id entity) const noexcept {
-    // if (entity >= _component_masks.size())
-    //   return false;
-
     assert(entity < _component_masks.size());
 
-    constexpr auto query_bitset =
-        _get_query_bitset<QueryComponents...>();
-    return (_component_masks[entity] & query_bitset) ==
-           query_bitset;
+    constexpr auto query_bitset = _get_query_bitset<QueryComponents...>();
+    return (_component_masks[entity] & query_bitset) == query_bitset;
   }
 
   template <typename... QueryComponents>
@@ -99,51 +87,39 @@ public:
   }
 
   template <typename Component>
-  Component *
-  try_get_component(entity_id id) const noexcept {
+  Component *try_get_component(entity_id id) const noexcept {
     if (!has_component<Component>(id))
       return nullptr;
 
     return &_get_component_unchecked<Component>(id);
   }
 
-  template <typename... QueryComponents>
-  void for_each_entity(auto &&fn) {
+  template <typename... QueryComponents> void for_each_entity(auto &&fn) {
     using fn_t = std::decay_t<decltype(fn)>;
 
-    static_assert(
-        std::is_invocable_v<fn_t, entity_id,
-                            QueryComponents &...> ||
-            std::is_invocable_v<fn_t, QueryComponents &...>,
-        "fn must be invocable with either (entity_id, "
-        "QueryComponents &...) or (QueryComponents &...) "
-        "arguments");
+    static_assert(std::is_invocable_v<fn_t, entity_id, QueryComponents &...> ||
+                      std::is_invocable_v<fn_t, QueryComponents &...>,
+                  "fn must be invocable with either (entity_id, "
+                  "QueryComponents &...) or (QueryComponents &...) "
+                  "arguments");
 
-    constexpr auto query_bitset =
-        _get_query_bitset<QueryComponents...>();
+    constexpr auto query_bitset = _get_query_bitset<QueryComponents...>();
 
-    for (entity_id i = 0; i < _component_masks.size();
-         ++i) {
-      if ((_component_masks[i] & query_bitset) ==
-          query_bitset) {
-        if constexpr (std::is_invocable_v<
-                          fn_t, entity_id,
-                          QueryComponents &...>) {
-          fn(i, _get_component_unchecked<QueryComponents>(
-                    i)...);
-        } else if constexpr (std::is_invocable_v<
-                                 fn_t,
-                                 QueryComponents &...>) {
-          fn(_get_component_unchecked<QueryComponents>(
-              i)...);
+    #pragma omp parallel for schedule(static)
+    for (entity_id i = 0; i < _component_masks.size(); ++i) {
+      if ((_component_masks[i] & query_bitset) == query_bitset) {
+        if constexpr (std::is_invocable_v<fn_t, entity_id,
+                                          QueryComponents &...>) {
+          fn(i, _get_component_unchecked<QueryComponents>(i)...);
+        } else if constexpr (std::is_invocable_v<fn_t, QueryComponents &...>) {
+          fn(_get_component_unchecked<QueryComponents>(i)...);
         }
       }
     }
   }
 
 private:
-  using _component_bitset =
-      std::bitset<sizeof...(Components)>;
+  using _component_bitset = std::bitset<sizeof...(Components)>;
 
   std::vector<_component_bitset> _component_masks;
 
@@ -154,8 +130,7 @@ private:
   void _resize_component_vectors(std::size_t size) {
     (
         [&] {
-          auto &vec = std::get<std::vector<Components>>(
-              _components);
+          auto &vec = std::get<std::vector<Components>>(_components);
           vec.resize(size);
         }(),
         ...);
@@ -167,10 +142,8 @@ private:
 
     if constexpr (I == sizeof...(Components)) {
       return I;
-    } else if constexpr (std::is_same_v<
-                             Component,
-                             std::tuple_element_t<
-                                 I, component_tuple>>) {
+    } else if constexpr (std::is_same_v<Component, std::tuple_element_t<
+                                                       I, component_tuple>>) {
       return I;
     } else {
       return _get_bitset_index<Component, I + 1>();
@@ -179,15 +152,12 @@ private:
 
   template <typename... QueryComponents>
   static constexpr _component_bitset _get_query_bitset() {
-    return (... |
-            (1ULL << _get_bitset_index<QueryComponents>()));
+    return (... | (1ULL << _get_bitset_index<QueryComponents>()));
   }
 
   template <typename Component>
-  Component &
-  _get_component_unchecked(entity_id id) noexcept {
-    return std::get<std::vector<Component>>(
-        _components)[id];
+  Component &_get_component_unchecked(entity_id id) noexcept {
+    return std::get<std::vector<Component>>(_components)[id];
   }
 };
 } // namespace ecs
