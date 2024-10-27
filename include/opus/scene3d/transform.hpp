@@ -12,32 +12,16 @@ namespace scene3d {
 
 template <typename Numeric = float>
   requires std::is_floating_point_v<Numeric> || std::is_integral_v<Numeric>
-class transform {
-public:
+struct transform {
   using numeric_type = Numeric;
   using vec3_type = math::vector3<numeric_type>;
   using quat_type = math::quaternion<numeric_type>;
   using mat4_type = math::matrix4x4<numeric_type>;
   using transform_type = transform<numeric_type>;
 
-  vec3_type position;
-  quat_type rotation;
-  vec3_type scale;
-
-  constexpr transform() noexcept
-      : position(vec3_type::zero), rotation(quat_type::identity),
-        scale(vec3_type(1.0, 1.0, 1.0)) {}
-
-  constexpr transform(const vec3_type &pos, const quat_type &rot,
-                        const vec3_type &scl) noexcept
-      : position(pos), rotation(rot), scale(scl) {}
-
-  constexpr transform_type &operator=(const transform_type &other) noexcept {
-    position = other.position;
-    rotation = other.rotation;
-    scale = other.scale;
-    return *this;
-  }
+  vec3_type position{vec3_type::zero};
+  quat_type rotation{quat_type::identity};
+  vec3_type scale{1.0, 1.0, 1.0};
 
   constexpr bool operator==(const transform_type &other) const noexcept {
     return position == other.position && rotation == other.rotation &&
@@ -48,8 +32,7 @@ public:
     return !(*this == other);
   }
 
-  constexpr transform_type
-  operator*(const transform_type &other) const noexcept {
+  constexpr transform_type operator*(const transform_type &other) const noexcept {
     vec3_type new_position = position + rotation.rotate(other.position * scale);
     quat_type new_rotation = rotation * other.rotation;
     vec3_type new_scale = scale * other.scale;
@@ -72,8 +55,7 @@ public:
     return position + rotation.rotate(point * scale);
   }
 
-  constexpr vec3_type
-  transform_direction(const vec3_type &direction) const noexcept {
+  constexpr vec3_type transform_direction(const vec3_type &direction) const noexcept {
     return rotation.rotate(direction);
   }
 
@@ -83,9 +65,21 @@ public:
     vec3_type inv_position = inv_rotation.rotate(-position * inv_scale);
     return {inv_position, inv_rotation, inv_scale};
   }
+
+  constexpr vec3_type get_forward_vector() const noexcept {
+    return rotation.rotate(vec3_type(0.0f, 0.0f, -1.0f));
+  }
+
+  constexpr vec3_type get_right_vector() const noexcept {
+    return rotation.rotate(vec3_type(1.0f, 0.0f, 0.0f));
+  }
+
+  constexpr vec3_type get_up_vector() const noexcept {
+    return rotation.rotate(vec3_type(0.0f, 1.0f, 0.0f));
+  }
 };
 
-} // namespace scene
+} // namespace scene3d
 
 template <std::floating_point Float>
 struct std::formatter<scene3d::transform<Float>> {

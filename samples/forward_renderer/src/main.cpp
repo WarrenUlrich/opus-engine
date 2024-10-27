@@ -22,139 +22,230 @@
 #include <opus/scene3d/forward_renderer.hpp>
 #include <opus/scene3d/mesh_instance.hpp>
 #include <opus/scene3d/transform.hpp>
+#include <opus/scene3d/light.hpp>
 
-class application {
+#include <opus/ecs/ecs.hpp>
+
+class forward_renderer {
 public:
   // Factory method to create an instance of the application
-  static std::optional<application> create(int width, int height) {
+  static std::optional<forward_renderer> create(GLFWwindow *window) {
     dawnProcSetProcs(&dawn::native::GetProcs());
 
-    application app;
-    app._width = width;
-    app._height = height;
+    forward_renderer app;
+    app._window = window;
+
+    glfwGetWindowSize(window, &app._width, &app._height);
 
     // Initialize WebGPU components
-    if (!app.initialize_webgpu()) {
+    if (!app._init_webgpu()) {
       return std::nullopt;
     }
 
     // Initialize GLFW and create a window
-    if (!app.initialize_glfw()) {
+    if (!app._initialize_glfw()) {
       return std::nullopt;
     }
 
     // Create depth texture for rendering
-    app.create_depth_texture();
-
-    // Create sphere mesh using mesh_instance
-    app._cube_mesh =
-        scene3d::mesh_instance::create_sphere(app._device, 0.5f, 20, 20);
+    app._create_depth_texture();
 
     // Create uniform buffer
-    app.create_buffers();
+    app._create_buffers();
 
     // Create shader modules
-    app.create_shader();
+    app._create_shader();
 
     // Set up bind group layout and bind group
-    app.create_bind_group_layout();
-    app.create_bind_group();
+    app._create_bind_group_layout();
+    app._create_bind_group();
 
     // Set up pipeline layout and create the render pipeline
-    app.create_pipeline_layout();
-    app.create_pipeline();
+    app._create_pipeline_layout();
+    app._create_pipeline();
 
     return app;
   }
 
-  // Main application loop
-  bool run() {
-    // Set up the camera
-    auto camera = scene3d::camera<float>();
-    camera.set_fov(radians(60.0f));
-    camera.set_aspect_ratio(static_cast<float>(_width) / _height);
-    camera.set_far_plane(100.0f);
+  void render(auto &ctx) {
+    std::vector<_light_uniform> lights(256);
 
-    auto camera_transform = scene3d::transform<float>();
-    camera_transform.position.z = -5.0;
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
 
-    // Transform for the sphere
-    auto transform = scene3d::transform<float>();
+    // Populate light data with time-based randomness
+    float timeFactor = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
 
-    while (!glfwWindowShouldClose(this->_window)) {
-      glfwPollEvents();
+    for (int i = 0; i < 256; ++i) {
+      // Generate a random offset for the light position
+      float randomOffsetX = static_cast<float>(std::rand()) / RAND_MAX;
+      float randomOffsetY = static_cast<float>(std::rand()) / RAND_MAX;
+      float randomOffsetZ = static_cast<float>(std::rand()) / RAND_MAX;
 
-      double currentTime = glfwGetTime(); // Get the elapsed time in seconds
-      float angle = static_cast<float>(
-          currentTime); // You can adjust the speed multiplier if desired
-
-      // Update application state (uniform buffers)
-      update_uniform_buffer(camera, camera_transform.to_matrix(), transform);
-
-      std::vector<_light_uniform> lights(256);
-
-      std::srand(static_cast<unsigned>(std::time(nullptr)));
-
-      // Populate light data with time-based randomness
-      float timeFactor = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
-
-      for (int i = 0; i < 256; ++i) {
-        // Generate a random offset for the light position
-        float randomOffsetX = static_cast<float>(std::rand()) / RAND_MAX;
-        float randomOffsetY = static_cast<float>(std::rand()) / RAND_MAX;
-        float randomOffsetZ = static_cast<float>(std::rand()) / RAND_MAX;
-
-        // Assign a random light type for variation
-        if (i % 3 == 0) {
-          lights[i].type = _light_uniform::point;
-          lights[i].color = math::vector3<float>{0.0f, 1.0f, 0.0f};
-        } else if (i % 3 == 1) {
-          lights[i].type = _light_uniform::directional;
-          lights[i].direction = math::vector3<float>{
-              0.0f, -1.0f, 0.0f}; // Default downward direction
-          lights[i].color = math::vector3<float>{0.0f, 0.0f, 1.0f};
-        } else {
-          lights[i].type = _light_uniform::spot;
-          lights[i].direction =
-              math::vector3<float>{0.0f, -1.0f, 0.0f}; // Spotlight direction
-          lights[i].cutoff_angle = 25.0f; // Spotlights' cutoff angle in degrees
-          lights[i].color = math::vector3<float>{1.0f, 0.0f, 0.0f};
-        }
-
-        // Modulate position, intensity, and color with time for randomness
-        lights[i].position = math::vector3<float>{
-            i * 0.1f + randomOffsetX * std::sin(timeFactor + i),
-            i * 0.1f + randomOffsetY * std::cos(timeFactor + i),
-            i * 0.1f + randomOffsetZ * std::sin(timeFactor * 0.5f + i)};
-
-        // Randomly vary intensity between 0.5 and 1.5 over time
-        lights[i].intensity = 1.0f + std::sin(timeFactor + i) * 0.5f;
-
-        // Keep the radius constant for point lights or spotlights
-        lights[i].radius = (lights[i].type == _light_uniform::point ||
-                            lights[i].type == _light_uniform::spot)
-                               ? 10.0f
-                               : 0.0f;
+      // Assign a random light type for variation
+      if (i % 3 == 0) {
+        lights[i].type = _light_uniform::point;
+        lights[i].color = math::vector3<float>{0.0f, 1.0f, 0.0f};
+      } else if (i % 3 == 1) {
+        // lights[i].type = _light_uniform::directional;
+        // lights[i].direction = math::vector3<float>{
+        //     0.0f, -1.0f, 0.0f}; // Default downward direction
+        // lights[i].color = math::vector3<float>{0.0f, 0.0f, 1.0f};
+      } else {
+        lights[i].type = _light_uniform::spot;
+        lights[i].direction =
+            math::vector3<float>{0.0f, -1.0f, 0.0f}; // Spotlight direction
+        lights[i].cutoff_angle = 40.0f; // Spotlights' cutoff angle in degrees
+        lights[i].color = math::vector3<float>{1.0f, 0.0f, 0.0f};
       }
 
-      // Update buffers
-      update_light_buffer(lights);
+      // Modulate position, intensity, and color with time for randomness
+      lights[i].position = math::vector3<float>{
+          i * 0.1f + randomOffsetX * std::sin(timeFactor + i),
+          i * 0.1f + randomOffsetY * std::cos(timeFactor + i),
+          i * 0.1f + randomOffsetZ * std::sin(timeFactor * 0.5f + i)};
 
-      // Render a frame
-      if (!render_frame()) {
-        return false;
-      }
+      // Randomly vary intensity between 0.5 and 1.5 over time
+      lights[i].intensity = 1.5f + std::sin(timeFactor + i) * 0.5f;
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      // Keep the radius constant for point lights or spotlights
+      lights[i].radius = (lights[i].type == _light_uniform::point ||
+                          lights[i].type == _light_uniform::spot)
+                             ? 10.0f
+                             : 0.0f;
     }
 
-    return true;
+    // Update buffers
+    update_light_buffer(lights);
+
+    // Get the camera transform and camera
+    ctx.template for_each_entity<scene3d::transform<float>,
+                                 scene3d::camera<float>>(
+        [&](const scene3d::transform<float> &xform,
+            const scene3d::camera<float> &camera) {
+          // Update the camera uniform buffer
+          _camera_uniform camera_data;
+          camera_data.mvp = camera.get_projection_matrix() * xform.to_matrix();
+          camera_data.position = xform.position;
+
+          _queue.WriteBuffer(_camera_buffer, 0, &camera_data,
+                             sizeof(_camera_uniform));
+        });
+
+    // Acquire the next texture from the surface
+    wgpu::SurfaceTexture texture;
+    _surface.GetCurrentTexture(&texture);
+
+    if (!texture.texture) {
+      std::cerr << "Failed to acquire next surface texture.\n";
+      return;
+    }
+
+    // Create a texture view from the texture
+    const auto texture_view = texture.texture.CreateView();
+
+    // Create depth texture view
+    const auto depth_texture_descriptor = wgpu::TextureViewDescriptor{};
+    const auto depth_texture_view =
+        _depth_texture.CreateView(&depth_texture_descriptor);
+
+    // Create command encoder
+    auto encoder_desc = wgpu::CommandEncoderDescriptor{};
+    auto encoder = _device.CreateCommandEncoder(&encoder_desc);
+
+    // Set up the render pass descriptor
+    const auto color_attachment = wgpu::RenderPassColorAttachment{
+        .view = texture_view,
+        .resolveTarget = nullptr,
+        .loadOp = wgpu::LoadOp::Clear,
+        .storeOp = wgpu::StoreOp::Store,
+        .clearValue = {0.0f, 0.0f, 0.0f, 1.0f},
+    };
+
+    const auto depth_stencil_attachment =
+        wgpu::RenderPassDepthStencilAttachment{
+            .view = depth_texture_view,
+            .depthLoadOp = wgpu::LoadOp::Clear,
+            .depthStoreOp = wgpu::StoreOp::Store,
+            .depthClearValue = 1.0f,
+            .depthReadOnly = false,
+
+            // Set stencil operations
+            .stencilLoadOp = wgpu::LoadOp::Clear,
+            .stencilStoreOp = wgpu::StoreOp::Store,
+            .stencilClearValue = 0,
+            .stencilReadOnly = false,
+        };
+
+    const auto render_pass_desc = wgpu::RenderPassDescriptor{
+        .colorAttachmentCount = 1,
+        .colorAttachments = &color_attachment,
+        .depthStencilAttachment = &depth_stencil_attachment,
+    };
+
+    // Begin render pass
+    auto render_pass = encoder.BeginRenderPass(&render_pass_desc);
+
+    const size_t model_uniform_alignment = 256; // Alignment requirement
+    size_t entity_index = 0;
+
+    ctx.template for_each_entity<scene3d::transform<float>,
+                                 scene3d::mesh_instance>(
+        [&](const scene3d::transform<float> &xform,
+            const scene3d::mesh_instance &mesh) {
+          // Update model uniform buffer
+          _model_uniform model_data;
+          model_data.transform = xform.to_matrix();
+
+          // Calculate offset for this entity (must be 256-byte aligned)
+          size_t model_data_offset = entity_index * model_uniform_alignment;
+
+          // Write data to the buffer at the calculated offset
+          _queue.WriteBuffer(_model_buffer, model_data_offset, &model_data,
+                             sizeof(_model_uniform));
+
+          // Set pipeline and bind group
+          render_pass.SetPipeline(_pipeline);
+
+          // Dynamic offset for this draw call
+          uint32_t dynamic_offset = static_cast<uint32_t>(model_data_offset);
+
+          // Set bind group with dynamic offset
+          render_pass.SetBindGroup(0, _bind_group, 1, &dynamic_offset);
+
+          // Set vertex and index buffers
+          render_pass.SetVertexBuffer(0, mesh.get_vertex_buffer());
+          render_pass.SetIndexBuffer(mesh.get_index_buffer(),
+                                     wgpu::IndexFormat::Uint16);
+
+          // Draw call
+          render_pass.DrawIndexed(mesh.get_index_count(), 1, 0, 0, 0);
+
+          ++entity_index;
+        });
+
+    // End render pass
+    render_pass.End();
+
+    // Finish encoding commands
+    const auto command_buffer = encoder.Finish();
+
+    // Submit commands to the GPU queue
+    _queue.Submit(1, &command_buffer);
+
+    // Present the rendered image to the surface
+    _surface.Present();
   }
+
+  const auto &get_device() const noexcept { return _device; }
 
 private:
   struct alignas(16) _camera_uniform {
     math::matrix4x4<float> mvp;
-    math::matrix4x4<float> model;
+    math::vector3<float> position;
+  };
+
+  struct alignas(16) _model_uniform {
+    math::matrix4x4<float> transform;
   };
 
   struct alignas(16) _light_uniform {
@@ -174,10 +265,10 @@ private:
     std::array<uint32_t, 256> light_indices;
   };
 
-  application() = default;
+  forward_renderer() = default;
 
   // Initialize WebGPU instance, adapter, and device
-  bool initialize_webgpu() {
+  bool _init_webgpu() {
     // Set up toggles for Dawn
     std::vector<const char *> enableToggleNames;
     std::vector<const char *> disabledToggleNames;
@@ -198,9 +289,10 @@ private:
     _instance = wgpu::CreateInstance(&instance_descriptor);
 
     // Request a GPU adapter
-    auto adapter_options = wgpu::RequestAdapterOptions();
-    adapter_options.backendType = wgpu::BackendType::Vulkan;
-    adapter_options.powerPreference = wgpu::PowerPreference::HighPerformance;
+    const auto adapter_options = wgpu::RequestAdapterOptions{
+        .powerPreference = wgpu::PowerPreference::HighPerformance,
+        .backendType = wgpu::BackendType::Vulkan,
+    };
 
     _instance.WaitAny(_instance.RequestAdapter(
                           &adapter_options, wgpu::CallbackMode::WaitAnyOnly,
@@ -288,24 +380,7 @@ private:
   }
 
   // Initialize GLFW and create a window and surface
-  bool initialize_glfw() {
-    glfwSetErrorCallback([](int code, const char *message) {
-      std::cerr << "GLFW error: " << code << " - " << message << '\n';
-    });
-
-    if (!glfwInit()) {
-      return false;
-    }
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    _window =
-        glfwCreateWindow(_width, _height, "WebGPU 3D Sphere", nullptr, nullptr);
-
-    if (!_window) {
-      std::cerr << "Failed to create GLFW window.\n";
-      return false;
-    }
-
+  bool _initialize_glfw() {
     // Create a surface for the window
     _surface = wgpu::glfw::CreateSurfaceForWindow(_instance, _window);
 
@@ -313,7 +388,7 @@ private:
     auto surface_caps = wgpu::SurfaceCapabilities();
     _surface.GetCapabilities(_adapter, &surface_caps);
 
-    auto surface_config =
+    const auto surface_config =
         wgpu::SurfaceConfiguration{.device = _device,
                                    .format = surface_caps.formats[0],
                                    .width = static_cast<uint32_t>(_width),
@@ -326,7 +401,7 @@ private:
   }
 
   // Create a depth texture for depth testing
-  void create_depth_texture() {
+  void _create_depth_texture() {
     const auto depth_descriptor = wgpu::TextureDescriptor{
         .usage = wgpu::TextureUsage::RenderAttachment,
         .size = wgpu::Extent3D{.width = static_cast<uint32_t>(_width),
@@ -337,171 +412,100 @@ private:
     _depth_texture = _device.CreateTexture(&depth_descriptor);
   }
 
-  void create_buffers() {
-    // Uniform buffer for matrices
-    wgpu::BufferDescriptor uniformBufferDescriptor = {
+  void _create_buffers() {
+    // Uniform buffer for camera projection
+    const auto camera_buffer_descriptor = wgpu::BufferDescriptor{
         .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
-        .size = sizeof(math::matrix4x4<float>) * 2};
+        .size = sizeof(_camera_uniform)};
 
-    _camera_buffer = _device.CreateBuffer(&uniformBufferDescriptor);
+    _camera_buffer = _device.CreateBuffer(&camera_buffer_descriptor);
+
+    constexpr size_t max_entities = 256;
+    constexpr size_t model_uniform_alignment = 256;
+
+    // Uniform buffer for model transform
+    const auto model_buffer_descriptor = wgpu::BufferDescriptor{
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = max_entities * model_uniform_alignment,
+    };
+
+    _model_buffer = _device.CreateBuffer(&model_buffer_descriptor);
 
     // Storage buffer for lights
-    wgpu::BufferDescriptor lightBufferDescriptor = {
+    const auto light_buffer_descriptor = wgpu::BufferDescriptor{
         .usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst,
         .size = sizeof(_light_uniform) * 256};
-    _light_buffer = _device.CreateBuffer(&lightBufferDescriptor);
+    _light_buffer = _device.CreateBuffer(&light_buffer_descriptor);
 
     // Storage buffer for tiles
-    wgpu::BufferDescriptor tileBufferDescriptor = {
+    const auto tile_buffer_descriptor = wgpu::BufferDescriptor{
         .usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst,
         .size = sizeof(_tile_uniform) * (16 * 16)};
-    _tile_buffer = _device.CreateBuffer(&tileBufferDescriptor);
+    _tile_buffer = _device.CreateBuffer(&tile_buffer_descriptor);
   }
 
   // Create the shader module from WGSL code
-  void create_shader() {
-    const char *shader_src = R"(
-struct CameraUniform {
-  mvp: mat4x4<f32>,
-  model: mat4x4<f32>,
-};
+  void _create_shader() {
+    auto shader_file = std::fstream("resources/shaders/forward_renderer.wgsl");
+    auto shader_src = [&shader_file]() {
+      auto sstr = std::ostringstream();
+      sstr << shader_file.rdbuf();
+      return sstr.str();
+    }();
 
-struct LightUniform {
-  position: vec3<f32>,    // Position for point/spot lights, ignored for directional lights
-  intensity: f32,         // Intensity of the light
-  color: vec3<f32>,       // Light color
-  radius: f32,            // Radius for point/spot lights, 0 for directional lights
-  direction: vec3<f32>,   // Light direction for directional/spotlights, ignored for point lights
-  cutoff_angle: f32,      // Cutoff angle for spotlights, 0 for other lights
-  light_type: u32,        // 0 = Point light, 1 = Directional light, 2 = Spotlight
-};
+    const auto wgsl_desc = wgpu::ShaderModuleWGSLDescriptor({
+        .code = shader_src.c_str(),
+    });
 
-@group(0) @binding(0) var<uniform> uniforms: CameraUniform;
-@group(0) @binding(1) var<storage, read> lights: array<LightUniform, 256>;
-
-struct VertexInput {
-  @location(0) pos: vec3<f32>,
-  @location(1) normal: vec3<f32>,
-  @location(2) uv: vec2<f32>,
-};
-
-struct VertexOutput {
-  @builtin(position) Position: vec4<f32>,
-  @location(0) fragUV: vec2<f32>,
-  @location(1) fragNormal: vec3<f32>,
-  @location(2) fragPos: vec3<f32>, // Pass the fragment position to the fragment shader
-};
-
-@vertex
-fn vs(input: VertexInput) -> VertexOutput {
-  var output: VertexOutput;
-  output.Position = calculateMVP(input.pos);
-  output.fragUV = input.uv;
-  output.fragNormal = calculateNormal(input.normal);
-  output.fragPos = calculateFragPosition(input.pos);
-  return output;
-}
-
-fn calculateMVP(pos: vec3<f32>) -> vec4<f32> {
-  return uniforms.mvp * vec4<f32>(pos, 1.0);
-}
-
-fn calculateNormal(normal: vec3<f32>) -> vec3<f32> {
-  return normalize((uniforms.model * vec4<f32>(normal, 0.0)).xyz);
-}
-
-fn calculateFragPosition(pos: vec3<f32>) -> vec3<f32> {
-  return (uniforms.model * vec4<f32>(pos, 1.0)).xyz;
-}
-
-@fragment
-fn fs(input: VertexOutput) -> @location(0) vec4<f32> {
-  let checkerColor = calculateCheckerPattern(input.fragUV);
-  let normal = normalize(input.fragNormal);
-  var finalColor = vec3<f32>(0.1); // Ambient light base
-
-  for (var i = 0u; i < 256u; i = i + 1u) {
-    let light = lights[i];
-    finalColor += calculateLighting(light, input.fragPos, normal);
-  }
-
-  let baseColor = vec3<f32>(checkerColor, checkerColor, checkerColor);
-  finalColor = baseColor * finalColor;
-
-  return vec4<f32>(finalColor, 1.0); // Output color with full opacity
-}
-
-fn calculateCheckerPattern(uv: vec2<f32>) -> f32 {
-  let scaledUV = floor(30.0 * uv);
-  return 0.2 + 0.5 * ((scaledUV.x + scaledUV.y) - 2.0 * floor((scaledUV.x + scaledUV.y) / 2.0));
-}
-
-fn calculateLighting(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-  var lightColor = vec3<f32>(0.0);
-
-  if (light.light_type == 0u) {
-    lightColor = calculatePointLight(light, fragPos, normal);
-  } else if (light.light_type == 1u) {
-    lightColor = calculateDirectionalLight(light, normal);
-  } else if (light.light_type == 2u) {
-    lightColor = calculateSpotLight(light, fragPos, normal);
-  }
-
-  return lightColor;
-}
-
-fn calculatePointLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-  let lightDir = normalize(light.position - fragPos);
-  let distance = length(light.position - fragPos);
-  let attenuation = light.intensity / (1.0 + light.radius * distance * distance);
-  let diffuse = max(dot(normal, lightDir), 0.0);
-  return light.color * diffuse * attenuation;
-}
-
-fn calculateDirectionalLight(light: LightUniform, normal: vec3<f32>) -> vec3<f32> {
-  let lightDir = normalize(light.direction);
-  let diffuse = max(dot(normal, lightDir), 0.0);
-  return light.color * diffuse * light.intensity;
-}
-
-fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-  let lightDir = normalize(light.position - fragPos);
-  let distance = length(light.position - fragPos);
-  let attenuation = light.intensity / (1.0 + light.radius * distance * distance);
-  let spotEffect = dot(normalize(light.direction), -lightDir);
-
-  if (spotEffect > cos(radians(light.cutoff_angle))) {
-    let diffuse = max(dot(normal, lightDir), 0.0);
-    return light.color * diffuse * attenuation * spotEffect;
-  }
-
-  return vec3<f32>(0.0);
-}
-)";
-
-    wgpu::ShaderModuleWGSLDescriptor wgsl_desc = {};
-    wgsl_desc.code = shader_src;
-
-    wgpu::ShaderModuleDescriptor module_descriptor = {};
-    module_descriptor.nextInChain =
-        reinterpret_cast<const wgpu::ChainedStruct *>(&wgsl_desc);
+    const auto module_descriptor = wgpu::ShaderModuleDescriptor{
+        .nextInChain =
+            reinterpret_cast<const wgpu::ChainedStruct *>(&wgsl_desc),
+    };
 
     _shader_module = _device.CreateShaderModule(&module_descriptor);
+
+    _instance.WaitAny(_shader_module.GetCompilationInfo(
+                          wgpu::CallbackMode::AllowProcessEvents,
+                          [](wgpu::CompilationInfoRequestStatus status,
+                             const wgpu::CompilationInfo *info) {
+                            switch (status) {
+                            case wgpu::CompilationInfoRequestStatus::Success:
+                              std::cout << "SUCCESS!\n";
+                              break;
+                            default:
+                              throw std::exception();
+                            }
+
+                            for (auto i = 0; i < info->messageCount; ++i) {
+                              std::cout << info->messages[i].message.data
+                                        << '\n';
+                            }
+                          }),
+                      UINT64_MAX);
   }
 
   // Create the bind group layout for uniform and storage buffers
-  void create_bind_group_layout() {
+  void _create_bind_group_layout() {
     const wgpu::BindGroupLayoutEntry bgl_entries[] = {
         // Camera entry
         {.binding = 0,
          .visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
          .buffer = {.type = wgpu::BufferBindingType::Uniform}},
-        // Light entry
+        // Model entry
         {.binding = 1,
+         .visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
+         .buffer =
+             {
+                 .type = wgpu::BufferBindingType::Uniform,
+                 .hasDynamicOffset = true,
+                 .minBindingSize = sizeof(_model_uniform),
+             }},
+        // Light entry
+        {.binding = 2,
          .visibility = wgpu::ShaderStage::Fragment,
          .buffer = {.type = wgpu::BufferBindingType::ReadOnlyStorage}},
         // Tile entry
-        {.binding = 2,
+        {.binding = 3,
          .visibility = wgpu::ShaderStage::Fragment,
          .buffer = {.type = wgpu::BufferBindingType::ReadOnlyStorage}},
     };
@@ -513,18 +517,20 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
   }
 
   // Create the bind group for uniform and storage buffers
-  void create_bind_group() {
+  void _create_bind_group() {
     const wgpu::BindGroupEntry bg_entries[] = {
         // Camera entry
         {.binding = 0,
          .buffer = _camera_buffer,
          .size = sizeof(_camera_uniform)},
+        // Model entry
+        {.binding = 1, .buffer = _model_buffer, .size = sizeof(_model_uniform)},
         // Light entry
-        {.binding = 1,
+        {.binding = 2,
          .buffer = _light_buffer,
          .size = sizeof(_light_uniform) * 256},
         // Tile entry
-        {.binding = 2,
+        {.binding = 3,
          .buffer = _tile_buffer,
          .size = sizeof(_tile_uniform) * 16 * 16},
     };
@@ -538,14 +544,14 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
   }
 
   // Create the pipeline layout
-  void create_pipeline_layout() {
+  void _create_pipeline_layout() {
     wgpu::PipelineLayoutDescriptor layout_descriptor = {
         .bindGroupLayoutCount = 1, .bindGroupLayouts = &_bind_group_layout};
     _pipeline_layout = _device.CreatePipelineLayout(&layout_descriptor);
   }
 
   // Create the render pipeline
-  void create_pipeline() {
+  void _create_pipeline() {
     // Define the vertex attributes
     wgpu::VertexAttribute vertex_attributes[3]{
         // Position (vec3<f32>)
@@ -610,7 +616,7 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
     // Set up the render pipeline descriptor
     const auto pipeline_descriptor = wgpu::RenderPipelineDescriptor{
         .nextInChain = nullptr,
-        .label = nullptr,
+        .label = wgpu::StringView("Forward Rendering Pipeline"),
         .layout = _pipeline_layout,
         .vertex = vertex_state,
         .primitive =
@@ -639,38 +645,41 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
   // Inside the 'application' class
   void update_uniform_buffer(const scene3d::camera<float> &camera,
                              const math::matrix4x4<float> &view_matrix,
-                             scene3d::transform<float> &transform) {
+                             scene3d::transform<float> &obj_transform) {
     // Step 1: Calculate the current rotation angle based on elapsed time
     double currentTime = glfwGetTime(); // Get the elapsed time in seconds
-    float angle = static_cast<float>(
-        currentTime); // You can adjust the speed multiplier if desired
+    float angle = static_cast<float>(currentTime);
 
-    // Step 2: Create rotation quaternions around the Y and Z axes
-    auto yr = math::quaternion<float>::from_axis_angle(
-        math::vector3<float>(0.0f, 1.0f, 0.0f), std::sin(angle));
-    auto zr = math::quaternion<float>::from_axis_angle(
-        math::vector3<float>(0.0f, 0.0f, 1.0f), std::cos(angle));
-
-    // Step 3: Update the transform's rotation by combining Y and Z rotations
-    transform.rotation = yr * zr;
+    // Optional: Update object rotation if needed
+    // obj_transform.rotation = math::quaternion<float>::from_axis_angle(
+    //     math::vector3<float>(0.0f, 1.0f, 0.0f), std::sin(angle));
 
     // Step 4: Generate the Model matrix from the updated transform
-    math::matrix4x4<float> model_matrix = transform.to_matrix();
+    const auto model_matrix = obj_transform.to_matrix();
 
     // Step 5: Compute the MVP matrix
-    math::matrix4x4<float> projection_matrix = camera.get_projection_matrix();
-    math::matrix4x4<float> mvp = projection_matrix * view_matrix * model_matrix;
+    const auto projection_matrix = camera.get_projection_matrix();
+    const auto mvp = projection_matrix * view_matrix * model_matrix;
 
-    // Step 6: Populate the UniformsData struct
-    _camera_uniform data;
-    data.mvp = mvp.transpose(); // Transpose if your math library uses row-major
-    data.model = model_matrix.transpose(); // Transpose if necessary
+    // Step 6: Populate the UniformsData struct without transposing
+    _camera_uniform camera_data;
+    camera_data.mvp = mvp;
+    camera_data.position = {0, 0, -5};
 
     // Step 7: Write the UniformsData to the uniform buffer
     _queue.WriteBuffer(_camera_buffer,         // Destination buffer
                        0,                      // Offset in bytes
-                       &data,                  // Pointer to the data
+                       &camera_data,           // Pointer to the data
                        sizeof(_camera_uniform) // Size of the data in bytes
+    );
+
+    _model_uniform model_data;
+    model_data.transform = model_matrix;
+
+    _queue.WriteBuffer(_model_buffer,         // Destination buffer
+                       0,                     // Offset in bytes
+                       &model_data,           // Pointer to the data
+                       sizeof(_model_uniform) // Size of the data in bytes
     );
   }
 
@@ -686,89 +695,6 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
                        0,             // Offset in bytes (start of the buffer)
                        lights.data(), // Pointer to the data array
                        size);         // Size of the data in bytes
-  }
-
-  // Render a single frame
-  bool render_frame() {
-    // Acquire the next texture from the surface
-    wgpu::SurfaceTexture texture;
-    _surface.GetCurrentTexture(&texture);
-
-    if (!texture.texture) {
-      std::cerr << "Failed to acquire next surface texture.\n";
-      return false;
-    }
-
-    // Create a texture view from the texture
-    const auto texture_view = texture.texture.CreateView();
-
-    // Create depth texture view
-    const auto depth_texture_descriptor = wgpu::TextureViewDescriptor{};
-    const auto depth_texture_view =
-        _depth_texture.CreateView(&depth_texture_descriptor);
-
-    // Create command encoder
-    auto encoder_desc = wgpu::CommandEncoderDescriptor{};
-    auto encoder = _device.CreateCommandEncoder(&encoder_desc);
-
-    // Set up the render pass descriptor
-    const auto color_attachment = wgpu::RenderPassColorAttachment{
-        .view = texture_view,
-        .resolveTarget = nullptr,
-        .loadOp = wgpu::LoadOp::Clear,
-        .storeOp = wgpu::StoreOp::Store,
-        .clearValue = {0.0f, 0.0f, 0.0f, 1.0f},
-    };
-
-    const auto depth_stencil_attachment =
-        wgpu::RenderPassDepthStencilAttachment{
-            .view = depth_texture_view,
-            .depthLoadOp = wgpu::LoadOp::Clear,
-            .depthStoreOp = wgpu::StoreOp::Store,
-            .depthClearValue = 1.0f,
-            .depthReadOnly = false,
-
-            // Set stencil operations
-            .stencilLoadOp = wgpu::LoadOp::Clear,
-            .stencilStoreOp = wgpu::StoreOp::Store,
-            .stencilClearValue = 0,
-            .stencilReadOnly = false,
-        };
-
-    const auto render_pass_desc = wgpu::RenderPassDescriptor{
-        .colorAttachmentCount = 1,
-        .colorAttachments = &color_attachment,
-        .depthStencilAttachment = &depth_stencil_attachment,
-    };
-
-    // Begin render pass
-    const auto render_pass = encoder.BeginRenderPass(&render_pass_desc);
-
-    // Set pipeline and vertex buffer
-    render_pass.SetPipeline(_pipeline);
-    render_pass.SetVertexBuffer(0, _cube_mesh.get_vertex_buffer());
-    render_pass.SetIndexBuffer(_cube_mesh.get_index_buffer(),
-                               wgpu::IndexFormat::Uint16);
-
-    // Bind the bind group
-    render_pass.SetBindGroup(0, _bind_group);
-
-    // Issue draw call
-    render_pass.DrawIndexed(_cube_mesh.get_index_count(), 1, 0, 0, 0);
-
-    // End render pass
-    render_pass.End();
-
-    // Finish encoding commands
-    const auto command_buffer = encoder.Finish();
-
-    // Submit commands to the GPU queue
-    _queue.Submit(1, &command_buffer);
-
-    // Present the rendered image to the surface
-    _surface.Present();
-
-    return true;
   }
 
   // Convert degrees to radians
@@ -788,6 +714,7 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
 
   // GPU resources
   wgpu::Buffer _camera_buffer;              // Uniform buffer for matrices
+  wgpu::Buffer _model_buffer;               // Uniform buffer for matrices
   wgpu::Buffer _light_buffer;               // Storage buffer for lights
   wgpu::Buffer _tile_buffer;                // Storage buffer for tiles
   wgpu::Texture _depth_texture;             // Depth texture
@@ -798,18 +725,82 @@ fn calculateSpotLight(light: LightUniform, fragPos: vec3<f32>, normal: vec3<f32>
   wgpu::RenderPipeline _pipeline;           // Render pipeline
 
   // Application data
-  int _width, _height;               // Window dimensions
-  scene3d::mesh_instance _cube_mesh; // Cube mesh
-  GLFWwindow *_window;               // GLFW window handle
+  int _width, _height; // Window dimensions
+  GLFWwindow *_window; // GLFW window handle
 };
 
+using ecs_context =
+    ecs::context<scene3d::transform<float>, scene3d::camera<float>,
+                 scene3d::mesh_instance>;
+
 int main(int argc, char **args) {
-  auto app = application::create(1920 / 2, 1080);
-  if (!app) {
+  glfwSetErrorCallback([](int code, const char *message) {
+    std::cerr << "GLFW error: " << code << " - " << message << '\n';
+  });
+
+  if (!glfwInit()) {
+    return false;
+  }
+
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+  constexpr auto width = 1920 / 2, height = 1080;
+  const auto window =
+      glfwCreateWindow(width, height, "WebGPU 3D Sphere", nullptr, nullptr);
+
+  auto renderer = forward_renderer::create(window);
+  if (!renderer) {
     std::cerr << "Failed to create application" << std::endl;
     return 1;
   }
 
-  app->run();
+  ecs_context ctx;
+
+  auto camera_entity = ctx.new_entity();
+  ctx.add_component(camera_entity, scene3d::transform<float>{
+                                       .position = {0.0f, 0.0f, -10.0f}});
+
+  ctx.add_component(camera_entity, [&]() {
+    auto camera = scene3d::camera<float>();
+    camera.set_fov(60.0f * (std::numbers::pi_v<float> / 180.0f));
+    camera.set_aspect_ratio(static_cast<float>(width) / height);
+    camera.set_far_plane(1000.0f);
+
+    return camera;
+  }());
+
+  auto sphere1 = ctx.new_entity();
+  ctx.add_component(sphere1, scene3d::transform<float>{.position = {0, -2, 0}});
+  ctx.add_component(sphere1, scene3d::mesh_instance::create_sphere(
+                                 renderer->get_device(), 1.0f, 10, 10));
+
+  auto sphere2 = ctx.new_entity();
+  ctx.add_component(sphere2, scene3d::transform<float>{.position = {0, 2, 0}});
+  ctx.add_component(sphere2, scene3d::mesh_instance::create_sphere(
+                                 renderer->get_device(), 1.0f, 10, 10));
+
+  while (!glfwWindowShouldClose(window)) {
+    glfwPollEvents();
+
+    double currentTime = glfwGetTime(); // Get the elapsed time in seconds
+    float angle = static_cast<float>(currentTime);
+
+    // Optional: Update object rotation if needed
+    ctx.for_each_entity<scene3d::transform<float>, scene3d::mesh_instance>(
+        [&](scene3d::transform<float> &xform, const auto &_) {
+          auto xr = math::quaternion<float>::from_axis_angle(
+              math::vector3<float>(1.0f, 0.0f, 0.0f), std::sin(angle));
+
+          auto yr = math::quaternion<float>::from_axis_angle(
+              math::vector3<float>(0.0f, 1.0f, 0.0f), std::sin(-angle));
+
+          xform.rotation = xr * yr;
+        });
+
+    renderer->render(ctx);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(4));
+  }
+
   return 0;
 }

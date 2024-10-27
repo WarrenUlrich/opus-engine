@@ -6,6 +6,9 @@
 #include <limits>
 #include <numbers>
 
+#include "vector3.hpp"
+#include "matrix4x4.hpp"
+
 namespace math {
 /**
  * @class quaternion

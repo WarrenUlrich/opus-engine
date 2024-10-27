@@ -30,5 +30,4 @@ target_link_libraries(
   glfw
 )
 
-# Add subdirectories (for tests, etc.)
-add_subdirectory(tests)
+add_subdirectory(samples)
