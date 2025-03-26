@@ -43,6 +43,8 @@ public:
     // Create uniform buffer
     app._create_buffers();
 
+    app._create_texture_array(256, 256, 8);
+
     // Create shader modules
     app._create_shader();
 
@@ -57,22 +59,11 @@ public:
     // Initialize some default materials
     std::vector<_material_uniform> materials(64);
 
-    // Set up some example materials
-    materials[0].albedo = math::vector3<float>{0.9f, 0.9f, 0.9f}; // White
-    materials[0].metallic = 0.0f;
-    materials[0].roughness = 0.5f;
-
-    materials[1].albedo = math::vector3<float>{0.9f, 0.1f, 0.1f}; // Red
-    materials[1].metallic = 0.0f;
-    materials[1].roughness = 0.7f;
-
-    materials[2].albedo = math::vector3<float>{0.1f, 0.9f, 0.1f}; // Green
-    materials[2].metallic = 0.0f;
-    materials[2].roughness = 1.0f;
-
-    materials[3].albedo = math::vector3<float>{0.1f, 0.9f, 0.1f}; // Green
-    materials[3].metallic = 1.0f;
-    materials[3].roughness = 0.2f;
+    materials[0].albedo_texture_idx = 0;    // White texture
+    materials[0].metallic_texture_idx = 1;  // Non-metallic (0.0)
+    materials[0].roughness_texture_idx = 2; // Medium roughness (0.5)
+    materials[0].uv_scale = math::vector2<float>{1.0f, 1.0f};
+    materials[0].uv_offset = math::vector2<float>{0.0f, 0.0f};
 
     // Update material buffer
     app._update_material_buffer(materials);
@@ -105,7 +96,7 @@ public:
     lights[2].cutoff_angle = 30.0f;
 
     // Update buffers
-    update_light_buffer(lights);
+    _update_light_buffer(lights);
 
     // Get the camera transform and camera
     ctx.template for_each_entity<scene3d::transform<float>,
@@ -131,19 +122,15 @@ public:
       return;
     }
 
-    // Create a texture view from the texture
     const auto texture_view = texture.texture.CreateView();
 
-    // Create depth texture view
     const auto depth_texture_descriptor = wgpu::TextureViewDescriptor{};
     const auto depth_texture_view =
         _depth_texture.CreateView(&depth_texture_descriptor);
 
-    // Create command encoder
     auto encoder_desc = wgpu::CommandEncoderDescriptor{};
     auto encoder = _device.CreateCommandEncoder(&encoder_desc);
 
-    // Set up the render pass descriptor
     const auto color_attachment = wgpu::RenderPassColorAttachment{
         .view = texture_view,
         .resolveTarget = nullptr,
@@ -173,7 +160,6 @@ public:
         .depthStencilAttachment = &depth_stencil_attachment,
     };
 
-    // Begin render pass
     auto render_pass = encoder.BeginRenderPass(&render_pass_desc);
 
     const size_t model_uniform_alignment = 256; // Alignment requirement
@@ -183,51 +169,54 @@ public:
                                  scene3d::mesh_instance>(
         [&](const scene3d::transform<float> &xform,
             const scene3d::mesh_instance &mesh) {
-          // Update model uniform buffer
           _model_uniform model_data;
           model_data.transform = xform.to_matrix();
-          static uint32_t _matidx = 0;
-          model_data.material_idx = ++_matidx % 3;
+          model_data.material_idx = 0;
 
           // Calculate offset for this entity (must be 256-byte aligned)
           size_t model_data_offset = entity_index * model_uniform_alignment;
 
-          // Write data to the buffer at the calculated offset
           _queue.WriteBuffer(_model_buffer, model_data_offset, &model_data,
                              sizeof(_model_uniform));
 
-          // Set pipeline and bind group
           render_pass.SetPipeline(_pipeline);
 
-          // Dynamic offset for this draw call
           uint32_t dynamic_offset = static_cast<uint32_t>(model_data_offset);
 
-          render_pass.SetBindGroup(0, _bind_group_per_frame, 0, nullptr);
-          render_pass.SetBindGroup(1, _bind_group_per_object, 1,
-                                   &dynamic_offset);
-          render_pass.SetBindGroup(2, _bind_group_shared, 0, nullptr);
+          render_pass.SetBindGroup(0,                     // index
+                                   _bind_group_per_frame, // bind group
+                                   0,                     // dynamicOffsetCount
+                                   nullptr                // dynamicOffsets
+          );
 
-          // Set vertex and index buffers
+          render_pass.SetBindGroup(
+              1,                      // index
+              _bind_group_per_object, // bind group
+              1,              // dynamicOffsetCount - MUST match array size!
+              &dynamic_offset // dynamicOffsets
+          );
+
+          render_pass.SetBindGroup(2,                  // index
+                                   _bind_group_shared, // bind group
+                                   0,                  // dynamicOffsetCount
+                                   nullptr             // dynamicOffsets
+          );
+
           render_pass.SetVertexBuffer(0, mesh.get_vertex_buffer());
           render_pass.SetIndexBuffer(mesh.get_index_buffer(),
                                      wgpu::IndexFormat::Uint16);
 
-          // Draw call
           render_pass.DrawIndexed(mesh.get_index_count(), 1, 0, 0, 0);
 
           ++entity_index;
         });
 
-    // End render pass
     render_pass.End();
 
-    // Finish encoding commands
     const auto command_buffer = encoder.Finish();
 
-    // Submit commands to the GPU queue
     _queue.Submit(1, &command_buffer);
 
-    // Present the rendered image to the surface
     _surface.Present();
   }
 
@@ -240,9 +229,11 @@ private:
   };
 
   struct alignas(16) _material_uniform {
-    math::vector3<float> albedo;
-    float metallic;
-    float roughness;
+    uint32_t albedo_texture_idx;
+    uint32_t metallic_texture_idx;
+    uint32_t roughness_texture_idx;
+    math::vector2<float> uv_scale;
+    math::vector2<float> uv_offset;
   };
 
   struct alignas(16) _model_uniform {
@@ -269,7 +260,6 @@ private:
 
   forward_renderer() = default;
 
-  // Initialize WebGPU instance, adapter, and device
   bool _init_webgpu() {
     // Set up toggles for Dawn
     std::vector<const char *> enableToggleNames;
@@ -381,7 +371,6 @@ private:
     return true;
   }
 
-  // Initialize GLFW and create a window and surface
   bool _initialize_glfw() {
     // Create a surface for the window
     _surface = wgpu::glfw::CreateSurfaceForWindow(_instance, _window);
@@ -402,7 +391,6 @@ private:
     return true;
   }
 
-  // Create a depth texture for depth testing
   void _create_depth_texture() {
     const auto depth_descriptor = wgpu::TextureDescriptor{
         .usage = wgpu::TextureUsage::RenderAttachment,
@@ -412,6 +400,76 @@ private:
     };
 
     _depth_texture = _device.CreateTexture(&depth_descriptor);
+  }
+
+  void _create_texture_array(uint32_t width, uint32_t height, uint32_t layers) {
+    // Create a texture array with default white/black textures
+    const auto texture_desc = wgpu::TextureDescriptor{
+        .usage =
+            wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst,
+        .dimension = wgpu::TextureDimension::e2D,
+        .size = {width, height, layers},
+        .format = wgpu::TextureFormat::RGBA8Unorm,
+        .mipLevelCount = 1,
+        .sampleCount = 1,
+    };
+
+    _texture_array = _device.CreateTexture(&texture_desc);
+
+    // Create texture view for the entire array
+    const auto view_desc = wgpu::TextureViewDescriptor{
+        .format = wgpu::TextureFormat::RGBA8Unorm,
+        .dimension = wgpu::TextureViewDimension::e2DArray,
+        .baseMipLevel = 0,
+        .mipLevelCount = 1,
+        .baseArrayLayer = 0,
+        .arrayLayerCount = layers,
+    };
+
+    _texture_array_view = _texture_array.CreateView(&view_desc);
+
+    // Create a sampler
+    const auto sampler_desc = wgpu::SamplerDescriptor{
+        .addressModeU = wgpu::AddressMode::Repeat,
+        .addressModeV = wgpu::AddressMode::Repeat,
+        .addressModeW = wgpu::AddressMode::Repeat,
+        .magFilter = wgpu::FilterMode::Linear,
+        .minFilter = wgpu::FilterMode::Linear,
+        .mipmapFilter = wgpu::MipmapFilterMode::Linear,
+    };
+
+    _texture_sampler = _device.CreateSampler(&sampler_desc);
+
+    // Create default textures
+    _create_default_textures();
+  }
+
+  void _create_default_textures() {
+    const uint32_t width = 256;
+    const uint32_t height = 256;
+
+    // Create a white texture (albedo default)
+    std::vector<uint8_t> white_data(width * height * 4, 255);
+    _upload_texture_data(0, width, height, white_data.data());
+
+    // Create a black texture (metallic 0.0 default)
+    std::vector<uint8_t> black_data(width * height * 4, 0);
+    _upload_texture_data(1, width, height, black_data.data());
+
+    // Create a mid-gray texture (roughness 0.5 default)
+    std::vector<uint8_t> gray_data(width * height * 4, 127);
+    _upload_texture_data(2, width, height, gray_data.data());
+
+    // Create a normal map default (pointing up)
+    std::vector<uint8_t> normal_data(width * height * 4);
+    for (uint32_t i = 0; i < width * height; i++) {
+      // RGBA: (128, 128, 255, 255) - normal pointing up
+      normal_data[i * 4 + 0] = 128;
+      normal_data[i * 4 + 1] = 128;
+      normal_data[i * 4 + 2] = 255;
+      normal_data[i * 4 + 3] = 255;
+    }
+    _upload_texture_data(3, width, height, normal_data.data());
   }
 
   void _create_buffers() {
@@ -524,7 +582,20 @@ private:
         // Material entry
         {.binding = 0,
          .visibility = wgpu::ShaderStage::Fragment,
-         .buffer = {.type = wgpu::BufferBindingType::ReadOnlyStorage}}};
+         .buffer = {.type = wgpu::BufferBindingType::ReadOnlyStorage}},
+        // Texture array
+        {.binding = 1,
+         .visibility = wgpu::ShaderStage::Fragment,
+         .texture =
+             {
+                 .sampleType = wgpu::TextureSampleType::Float,
+                 .viewDimension = wgpu::TextureViewDimension::e2DArray,
+             }},
+        // Sampler
+        {.binding = 2,
+         .visibility = wgpu::ShaderStage::Fragment,
+         .sampler = {.type = wgpu::SamplerBindingType::Filtering}},
+    };
 
     wgpu::BindGroupLayoutDescriptor group2_descriptor = {
         .entryCount = std::size(group2_entries), .entries = group2_entries};
@@ -568,7 +639,12 @@ private:
         // Material entry
         {.binding = 0,
          .buffer = _material_buffer,
-         .size = sizeof(_material_uniform) * 64}};
+         .size = sizeof(_material_uniform) * 64},
+        // Texture array
+        {.binding = 1, .textureView = _texture_array_view},
+        // Sampler
+        {.binding = 2, .sampler = _texture_sampler},
+    };
 
     wgpu::BindGroupDescriptor group2_descriptor = {
         .layout = _bind_group_layout_shared,
@@ -587,7 +663,6 @@ private:
     _pipeline_layout = _device.CreatePipelineLayout(&layout_descriptor);
   }
 
-  // Create the render pipeline
   void _create_pipeline() {
     // Define the vertex attributes
     wgpu::VertexAttribute vertex_attributes[3]{
@@ -678,7 +753,7 @@ private:
     _pipeline = _device.CreateRenderPipeline(&pipeline_descriptor);
   }
 
-  void update_light_buffer(const std::vector<_light_uniform> &lights) {
+  void _update_light_buffer(const std::vector<_light_uniform> &lights) {
     // Check if the light buffer has enough capacity
     size_t size = sizeof(_light_uniform) * lights.size();
 
@@ -697,17 +772,39 @@ private:
     // Check if the material buffer has enough capacity
     size_t size = sizeof(_material_uniform) * materials.size();
 
-    // Make sure the data fits into the buffer size (here, 64 materials)
     assert(materials.size() <= 64);
 
-    // Write the material data to the GPU buffer
     _queue.WriteBuffer(_material_buffer, // Destination buffer
                        0, // Offset in bytes (start of the buffer)
                        materials.data(), // Pointer to the data array
                        size);            // Size of the data in bytes
   }
 
-  // Convert degrees to radians
+  void _upload_texture_data(uint32_t layer, uint32_t width, uint32_t height,
+                            const void *data) {
+    wgpu::ImageCopyTexture destination = {
+        .texture = _texture_array,
+        .mipLevel = 0,
+        .origin = {0, 0, layer},
+        .aspect = wgpu::TextureAspect::All,
+    };
+
+    wgpu::TextureDataLayout dataLayout = {
+        .offset = 0,
+        .bytesPerRow = width * 4, // Assuming RGBA8 format (4 bytes per pixel)
+        .rowsPerImage = height,
+    };
+
+    wgpu::Extent3D copySize = {
+        .width = width,
+        .height = height,
+        .depthOrArrayLayers = 1,
+    };
+
+    _queue.WriteTexture(&destination, data, width * height * 4, &dataLayout,
+                        &copySize);
+  }
+
   constexpr static float radians(float degrees) {
     return degrees * (std::numbers::pi_v<float> / 180.0f);
   }
@@ -728,6 +825,10 @@ private:
   wgpu::Buffer _light_buffer;   // Storage buffer for lights
   wgpu::Buffer _tile_buffer;    // Storage buffer for tiles
   wgpu::Texture _depth_texture; // Depth texture
+
+  wgpu::Texture _texture_array;
+  wgpu::TextureView _texture_array_view;
+  wgpu::Sampler _texture_sampler;
 
   wgpu::BindGroupLayout _bind_group_layout_per_frame;
   wgpu::BindGroupLayout _bind_group_layout_per_object;
@@ -753,9 +854,11 @@ struct CameraUniform {
 };
 
 struct MaterialUniform {
-  albedo: vec3<f32>,
-  metallic: f32,
-  roughness: f32
+  albedo_texture_idx: u32,
+  metallic_texture_idx: u32,
+  roughness_texture_idx: u32,
+  uv_scale: vec2<f32>,
+  uv_offset: vec2<f32>,
 };
 
 struct ModelUniform {
@@ -788,8 +891,12 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(0) @binding(1) var<storage, read> lights: array<LightUniform, 256>;
+
 @group(1) @binding(0) var<uniform> model: ModelUniform;
+
 @group(2) @binding(0) var<storage, read> materials: array<MaterialUniform, 64>;
+@group(2) @binding(1) var textureArray: texture_2d_array<f32>;
+@group(2) @binding(2) var textureSampler: sampler;
 
 const PI = 3.14159265359;
 
@@ -911,10 +1018,13 @@ fn fs(input: VertexOutput) -> @location(0) vec4<f32> {
   // Get the material for this model
   let material = materials[model.material_idx];
   
-  // Use material properties instead of checker pattern and hardcoded values
-  let baseColor = material.albedo;
-  let metallic = material.metallic;
-  let roughness = material.roughness;
+  // Apply UV transformation - ADD THIS LINE
+  let transformedUV = input.fragUV * material.uv_scale + material.uv_offset;
+  
+  // Sample textures using indices
+  let baseColor = textureSample(textureArray, textureSampler, transformedUV, material.albedo_texture_idx).rgb;
+  let metallic = textureSample(textureArray, textureSampler, transformedUV, material.metallic_texture_idx).r;
+  let roughness = textureSample(textureArray, textureSampler, transformedUV, material.roughness_texture_idx).r;
   
   let N = normalize(input.fragNormal);
   let V = normalize(camera.position - input.fragPos);

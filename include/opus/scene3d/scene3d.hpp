@@ -5,6 +5,5 @@
 #include "mesh_instance.hpp"
 #include "texture.hpp"
 #include "material.hpp"
-#include "light.hpp"
 #include "mesh_instance.hpp"
 #include "forward_renderer.hpp"

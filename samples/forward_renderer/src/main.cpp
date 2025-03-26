@@ -162,7 +162,6 @@ int main(int argc, char **args) {
     float angle = static_cast<float>(current_time);
 
     renderer->render(ctx);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(4));
   }
 
   return 0;
