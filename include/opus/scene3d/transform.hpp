@@ -1,12 +1,10 @@
 #pragma once
-
+#include "../math/math.hpp"
 #include <cmath>
 #include <concepts>
 #include <format>
 #include <limits>
 #include <numbers>
-
-#include "../math/math.hpp"
 
 namespace scene3d {
 
@@ -32,7 +30,8 @@ struct transform {
     return !(*this == other);
   }
 
-  constexpr transform_type operator*(const transform_type &other) const noexcept {
+  constexpr transform_type
+  operator*(const transform_type &other) const noexcept {
     vec3_type new_position = position + rotation.rotate(other.position * scale);
     quat_type new_rotation = rotation * other.rotation;
     vec3_type new_scale = scale * other.scale;
@@ -55,7 +54,8 @@ struct transform {
     return position + rotation.rotate(point * scale);
   }
 
-  constexpr vec3_type transform_direction(const vec3_type &direction) const noexcept {
+  constexpr vec3_type
+  transform_direction(const vec3_type &direction) const noexcept {
     return rotation.rotate(direction);
   }
 
@@ -64,18 +64,6 @@ struct transform {
     vec3_type inv_scale = vec3_type(1.0, 1.0, 1.0) / scale;
     vec3_type inv_position = inv_rotation.rotate(-position * inv_scale);
     return {inv_position, inv_rotation, inv_scale};
-  }
-
-  constexpr vec3_type get_forward_vector() const noexcept {
-    return rotation.rotate(vec3_type(0.0f, 0.0f, -1.0f));
-  }
-
-  constexpr vec3_type get_right_vector() const noexcept {
-    return rotation.rotate(vec3_type(1.0f, 0.0f, 0.0f));
-  }
-
-  constexpr vec3_type get_up_vector() const noexcept {
-    return rotation.rotate(vec3_type(0.0f, 1.0f, 0.0f));
   }
 };
 

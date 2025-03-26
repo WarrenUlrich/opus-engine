@@ -1,5 +1,7 @@
 #pragma once
 
+#include "transform.hpp"
+
 #include "../math/matrix4x4.hpp"
 #include "../math/vector3.hpp"
 
@@ -89,8 +91,39 @@ public:
            _ortho_bottom == other._ortho_bottom &&
            _projection_matrix == other._projection_matrix;
   }
-  
+
   bool operator!=(const camera &other) const { return !(*this == other); }
+
+  math::matrix4x4<float>
+  get_view_matrix(const scene3d::transform<float> &xform) const {
+    // Calculate view matrix as inverse of the camera's world transform
+    // First get the forward, right, and up vectors from the rotation quaternion
+    auto forward =
+        xform.rotation.rotate(math::vector3<float>(0.0f, 0.0f, 1.0f));
+    auto right = xform.rotation.rotate(math::vector3<float>(1.0f, 0.0f, 0.0f));
+    auto up = xform.rotation.rotate(math::vector3<float>(0.0f, 1.0f, 0.0f));
+
+    // Build view matrix
+    math::matrix4x4<float> view;
+    // Set rotation part of view matrix (transposed basis vectors)
+    view(0, 0)= right.x;
+    view(0, 1) = up.x;
+    view(0, 2) = forward.x;
+    view(1, 0) = right.y;
+    view(1, 1) = up.y;
+    view(1, 2) = forward.y;
+    view(2, 0) = right.z;
+    view(2, 1) = up.z;
+    view(2, 2) = forward.z;
+
+    // Set translation part (negative dot product with position)
+    view(3, 0) = -right.dot(xform.position);
+    view(3, 1) = -up.dot(xform.position);
+    view(3, 2) = -forward.dot(xform.position);
+    view(3, 3) = 1.0f;
+
+    return view;
+  }
 
 private:
   numeric_type _fov;

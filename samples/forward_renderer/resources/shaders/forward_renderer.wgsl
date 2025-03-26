@@ -1,38 +1,46 @@
 struct CameraUniform {
-    view_proj: mat4x4<f32>,
-    position: vec3<f32>,
+  view_proj: mat4x4<f32>,
+  position: vec3<f32>,
+};
+
+struct MaterialUniform {
+  albedo: vec3<f32>,
+  metallic: f32,
+  roughness: f32
 };
 
 struct ModelUniform {
-    transform: mat4x4<f32>,
+  transform: mat4x4<f32>,
+  material_idx: u32
 };
 
 struct LightUniform {
-    position: vec3<f32>,
-    intensity: f32,
-    color: vec3<f32>,
-    radius: f32,
-    direction: vec3<f32>,
-    cutoff_angle: f32,
-    light_type: u32,
+  position: vec3<f32>,
+  intensity: f32,
+  color: vec3<f32>,
+  radius: f32,
+  direction: vec3<f32>,
+  cutoff_angle: f32,
+  light_type: u32,
 };
 
 struct VertexInput {
-    @location(0) pos: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) uv: vec2<f32>,
+  @location(0) pos: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
 };
 
 struct VertexOutput {
-    @builtin(position) Position: vec4<f32>,
-    @location(0) fragUV: vec2<f32>,
-    @location(1) fragNormal: vec3<f32>,
-    @location(2) fragPos: vec3<f32>,
+  @builtin(position) Position: vec4<f32>,
+  @location(0) fragUV: vec2<f32>,
+  @location(1) fragNormal: vec3<f32>,
+  @location(2) fragPos: vec3<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
-@group(0) @binding(1) var<uniform> model: ModelUniform;
-@group(0) @binding(2) var<storage, read> lights: array<LightUniform, 256>;
+@group(0) @binding(1) var<storage, read> lights: array<LightUniform, 256>;
+@group(1) @binding(0) var<uniform> model: ModelUniform;
+@group(2) @binding(0) var<storage, read> materials: array<MaterialUniform, 64>;
 
 const PI = 3.14159265359;
 
@@ -81,7 +89,6 @@ fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
   return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
-// Lighting Functions
 fn computeLightingContribution(
   light: LightUniform,
   N: vec3<f32>,
@@ -102,7 +109,7 @@ fn computeLightingContribution(
       radiance = light.color * attenuation;
   } else if (light.light_type == 1u) { // Directional Light
       L = normalize(-light.direction);
-      radiance = light.color * light.intensity;
+      radiance = light.color * (light.intensity * 0.3);
   } else if (light.light_type == 2u) { // Spotlight
       let lightDir = light.position - fragPos;
       let distance = length(lightDir);
@@ -152,11 +159,14 @@ fn vs(input: VertexInput) -> VertexOutput {
 // Fragment Shader
 @fragment
 fn fs(input: VertexOutput) -> @location(0) vec4<f32> {
-  let checkerColor = calculateCheckerPattern(input.fragUV);
-  let baseColor = vec3<f32>(checkerColor);
-
-  let metallic: f32 = 0.2;    // Placeholder
-  let roughness: f32 = 0.6;   // Placeholder
+  // Get the material for this model
+  let material = materials[model.material_idx];
+  
+  // Use material properties instead of checker pattern and hardcoded values
+  let baseColor = material.albedo;
+  let metallic = material.metallic;
+  let roughness = material.roughness;
+  
   let N = normalize(input.fragNormal);
   let V = normalize(camera.position - input.fragPos);
 
@@ -173,9 +183,8 @@ fn fs(input: VertexOutput) -> @location(0) vec4<f32> {
       );
   }
 
-  let ambient = vec3<f32>(0.03) * baseColor;
-  let color = ambient + Lo;
-  let gammaCorrectedColor = pow(color, vec3<f32>(1.0 / 2.2));
+  let mapped = Lo / (Lo + vec3<f32>(1.0)); // Simple Reinhard tone mapping
+  let gammaCorrectedColor = pow(mapped, vec3<f32>(1.0 / 2.2));
 
   return vec4<f32>(gammaCorrectedColor, 1.0);
 }

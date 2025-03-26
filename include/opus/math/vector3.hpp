@@ -134,6 +134,10 @@ public:
     return std::sqrt(x * x + y * y + z * z);
   }
 
+  constexpr numeric_type length_squared() const noexcept {
+    return x * x + y * y + z * z;
+  }
+  
   constexpr vec_type normalized() const noexcept {
     const numeric_type len = length();
     return (len == 0) ? *this : *this / len;

@@ -7,7 +7,6 @@
 #include <numbers>
 
 #include "vector3.hpp"
-#include "matrix4x4.hpp"
 
 namespace math {
 /**
@@ -170,28 +169,28 @@ public:
     return {result.x, result.y, result.z};
   }
 
-  /**
-   * @brief Creates a quaternion that represents a rotation around a given axis
-   * by a specific angle.
-   *
-   * This function takes a 3D unit vector (axis) and an angle (in radians) as
-   * input and produces a quaternion that rotates around that axis by the given
-   * angle. It is commonly used to construct rotations for animation,
-   * orientation, or object manipulation in 3D graphics. The axis should be
-   * normalized (i.e., have a length of 1) for correct behavior.
-   *
-   * @param axis A normalized 3D vector representing the rotation axis.
-   * @param angle_rad The rotation angle in radians (e.g., π/2 for 90 degrees).
-   * @return A quaternion representing the specified rotation.
-   *
-   * @note If the axis is not normalized, the resulting rotation may not behave
-   * as expected.
-   */
   static constexpr quat_type from_axis_angle(const vec3_type &axis,
-                                             numeric_type angle_rad) noexcept {
-    numeric_type half_angle = angle_rad / 2;
-    numeric_type s = std::sin(half_angle);
-    return {std::cos(half_angle), axis.x * s, axis.y * s, axis.z * s};
+                                             numeric_type angle) noexcept {
+    // Ensure the axis is normalized
+    vec3_type normalized_axis = axis.normalized();
+
+    // Calculate half angle (quaternions use half angles for rotation)
+    numeric_type half_angle = angle * 0.5f;
+
+    // Calculate sine and cosine of half angle
+    numeric_type sin_half = std::sin(half_angle);
+    numeric_type cos_half = std::cos(half_angle);
+
+    // Create quaternion (w, x, y, z)
+    // w = cos(θ/2)
+    // x = axis.x * sin(θ/2)
+    // y = axis.y * sin(θ/2)
+    // z = axis.z * sin(θ/2)
+    return quat_type(cos_half,                     // w component (real part)
+                     normalized_axis.x * sin_half, // x component
+                     normalized_axis.y * sin_half, // y component
+                     normalized_axis.z * sin_half  // z component
+    );
   }
 
   /**
@@ -222,7 +221,7 @@ public:
       axis = {q.x / s, q.y / s, q.z / s};
     }
   }
-  
+
   /**
    * @brief Performs spherical linear interpolation (SLERP) between two
    * quaternions.
@@ -263,6 +262,123 @@ public:
 
     return (*this) * s0 + end * s1;
   }
+
+  /**
+   * @brief Creates a quaternion that represents the rotation required to look
+   * from one point to another.
+   *
+   * The look_at function generates a quaternion that, when applied to an
+   * object, will orient it to face from the 'eye' position toward the 'target'
+   * position. The 'up' vector defines which direction is considered "up" in the
+   * resulting orientation.
+   *
+   * This is particularly useful for:
+   * - Camera positioning in 3D applications
+   * - Making objects face toward points of interest
+   * - Orienting game characters to look at targets
+   *
+   * @param eye The position from which we are looking (typically the object or
+   * camera position).
+   * @param target The position we want to look at.
+   * @param up The up direction vector (typically (0,1,0) for y-up coordinate
+   * systems).
+   * @return A quaternion representing the orientation to look from 'eye' toward
+   * 'target'.
+   */
+  static constexpr quat_type
+  look_at(const vec3_type &eye, const vec3_type &target,
+          const vec3_type &world_up = vec3_type(0, 1, 0)) noexcept {
+    // Calculate forward vector (z-axis direction)
+    vec3_type forward = (eye - target).normalized();
+
+    // Check for degenerate case
+    if (forward.length_squared() <
+        std::numeric_limits<numeric_type>::epsilon()) {
+      return identity;
+    }
+
+    // Calculate right vector (x-axis direction)
+    vec3_type right = world_up.cross(forward).normalized();
+
+    // Check if forward and up are parallel
+    if (right.length_squared() < std::numeric_limits<numeric_type>::epsilon()) {
+      // Choose a different up vector
+      vec3_type alternate_up = (std::abs(forward.y) < 0.9f)
+                                   ? vec3_type(0, 1, 0)
+                                   : vec3_type(1, 0, 0);
+      right = alternate_up.cross(forward).normalized();
+    }
+
+    // Calculate actual up vector (y-axis direction)
+    vec3_type up = forward.cross(right);
+
+    // Find rotation between two coordinate frames
+    // This is more direct than going through a matrix
+
+    // First, create a quaternion that rotates from world forward (0,0,1) to our
+    // forward
+    vec3_type world_forward(0, 0, 1);
+    vec3_type rotation_axis = world_forward.cross(forward);
+    numeric_type dot = world_forward.dot(forward);
+
+    quat_type q1;
+
+    // Handle special cases
+    if (rotation_axis.length_squared() <
+        std::numeric_limits<numeric_type>::epsilon()) {
+      // Vectors are parallel
+      if (dot > 0) {
+        // Same direction
+        q1 = identity;
+      } else {
+        // Opposite direction
+        q1 = quat_type(0, 0, 1, 0); // 180 degree rotation around y-axis
+      }
+    } else {
+      // Normal case - create quaternion from axis and angle
+      numeric_type angle =
+          std::acos(std::clamp(dot, numeric_type(-1), numeric_type(1)));
+      q1 = from_axis_angle(rotation_axis.normalized(), angle);
+    }
+
+    // Then adjust for roll (rotation around forward axis)
+    // We need to align the "up" direction
+    vec3_type rotated_up = q1.rotate(vec3_type(0, 1, 0));
+    vec3_type target_up = up;
+
+    rotation_axis = rotated_up.cross(target_up);
+    dot = rotated_up.dot(target_up);
+
+    quat_type q2;
+
+    if (rotation_axis.length_squared() <
+        std::numeric_limits<numeric_type>::epsilon()) {
+      // Vectors are parallel
+      if (dot > 0) {
+        q2 = identity;
+      } else {
+        q2 = from_axis_angle(forward, std::numbers::pi_v<numeric_type>);
+      }
+    } else {
+      numeric_type angle =
+          std::acos(std::clamp(dot, numeric_type(-1), numeric_type(1)));
+      q2 = from_axis_angle(forward, angle);
+    }
+
+    // Combine rotations (q2 first, then q1)
+    return q1 * q2;
+  }
 };
 
 } // namespace math
+
+template <typename Numeric>
+  requires std::is_floating_point_v<Numeric> || std::is_integral_v<Numeric>
+struct std::formatter<math::quaternion<Numeric>> {
+  constexpr auto parse(std::format_parse_context &ctx) { return ctx.begin(); }
+  auto format(const math::quaternion<Numeric> &quat,
+              std::format_context &ctx) const {
+    return std::format_to(ctx.out(), "({}, {}, {}, {})", quat.w, quat.x, quat.y,
+                          quat.z);
+  }
+};

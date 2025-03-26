@@ -87,7 +87,7 @@ public:
   }
 
   template <typename Component>
-  Component *try_get_component(entity_id id) const noexcept {
+  Component *try_get_component(entity_id id) noexcept {
     if (!has_component<Component>(id))
       return nullptr;
 
