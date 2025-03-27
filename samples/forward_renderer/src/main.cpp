@@ -25,6 +25,36 @@ using ecs_context =
     ecs::context<scene3d::transform<float>, scene3d::camera<float>,
                  scene3d::mesh_instance>;
 
+// Center a GLFW window on the screen
+void centerWindow(GLFWwindow *window) {
+  // Get the primary monitor
+  GLFWmonitor *primaryMonitor = glfwGetPrimaryMonitor();
+
+  if (!primaryMonitor) {
+    std::cerr << "Failed to get primary monitor!" << std::endl;
+    return;
+  }
+
+  // Get the monitor's video mode (resolution)
+  const GLFWvidmode *mode = glfwGetVideoMode(primaryMonitor);
+
+  if (!mode) {
+    std::cerr << "Failed to get video mode!" << std::endl;
+    return;
+  }
+
+  // Get the window size
+  int windowWidth, windowHeight;
+  glfwGetWindowSize(window, &windowWidth, &windowHeight);
+
+  // Calculate center position
+  int xPos = (mode->width - windowWidth) / 2;
+  int yPos = (mode->height - windowHeight) / 2;
+
+  // Set window position
+  glfwSetWindowPos(window, xPos, yPos);
+}
+
 int main(int argc, char **args) {
   glfwSetErrorCallback([](int code, const char *message) {
     std::cerr << "GLFW error: " << code << " - " << message << '\n';
@@ -40,6 +70,8 @@ int main(int argc, char **args) {
   const auto window =
       glfwCreateWindow(width, height, "WebGPU 3D Sphere", nullptr, nullptr);
 
+  centerWindow(window);
+  
   auto renderer = scene3d::forward_renderer::create(window);
   if (!renderer) {
     std::cerr << "Failed to create application" << std::endl;

@@ -274,7 +274,7 @@ private:
 
     const auto instance_descriptor =
         wgpu::InstanceDescriptor{.nextInChain = nullptr,
-                                 .features = wgpu::InstanceFeatures{
+                                 .capabilities = wgpu::InstanceCapabilities{
                                      .timedWaitAnyEnable = true,
                                  }};
 
@@ -317,9 +317,9 @@ private:
           case wgpu::DeviceLostReason::Destroyed:
             reasonName = "Destroyed";
             break;
-          case wgpu::DeviceLostReason::InstanceDropped:
-            reasonName = "InstanceDropped";
-            break;
+          // case wgpu::DeviceLostReason::InstanceDropped:
+          //   reasonName = "InstanceDropped";
+          //   break;
           case wgpu::DeviceLostReason::FailedCreation:
             reasonName = "FailedCreation";
             break;
@@ -341,9 +341,9 @@ private:
       case wgpu::ErrorType::Unknown:
         errorTypeName = "Unknown";
         break;
-      case wgpu::ErrorType::DeviceLost:
-        errorTypeName = "Device lost";
-        break;
+        // case wgpu::ErrorType::DeviceLost:
+        //   errorTypeName = "Device lost";
+        //   break;
       }
       std::cerr << errorTypeName << " error: " << message.data << '\n';
     });
@@ -375,15 +375,26 @@ private:
     // Create a surface for the window
     _surface = wgpu::glfw::CreateSurfaceForWindow(_instance, _window);
 
+    if (!_surface) {
+      std::cout << "Failed to get surface for window\n";
+      return false;
+    }
+
     // Configure the surface
     auto surface_caps = wgpu::SurfaceCapabilities();
     _surface.GetCapabilities(_adapter, &surface_caps);
+
+    if (surface_caps.formatCount <= 0) {
+      std::cerr << "No compatible surface formats found.\n";
+      return false;
+    }
 
     const auto surface_config =
         wgpu::SurfaceConfiguration{.device = _device,
                                    .format = surface_caps.formats[0],
                                    .width = static_cast<uint32_t>(_width),
-                                   .height = static_cast<uint32_t>(_height)};
+                                   .height = static_cast<uint32_t>(_height),
+                                   .presentMode = wgpu::PresentMode::Fifo};
 
     _surface.Configure(&surface_config);
 
@@ -687,8 +698,8 @@ private:
 
     // Describe the vertex buffer layout
     const auto vertex_buffer_layout = wgpu::VertexBufferLayout{
-        .arrayStride = sizeof(float) * 8,
         .stepMode = wgpu::VertexStepMode::Vertex,
+        .arrayStride = sizeof(float) * 8,
         .attributeCount = std::size(vertex_attributes),
         .attributes = vertex_attributes,
     };
@@ -782,14 +793,14 @@ private:
 
   void _upload_texture_data(uint32_t layer, uint32_t width, uint32_t height,
                             const void *data) {
-    wgpu::ImageCopyTexture destination = {
+    wgpu::TexelCopyTextureInfo destination = {
         .texture = _texture_array,
         .mipLevel = 0,
         .origin = {0, 0, layer},
         .aspect = wgpu::TextureAspect::All,
     };
 
-    wgpu::TextureDataLayout dataLayout = {
+    wgpu::TexelCopyBufferLayout dataLayout = {
         .offset = 0,
         .bytesPerRow = width * 4, // Assuming RGBA8 format (4 bytes per pixel)
         .rowsPerImage = height,

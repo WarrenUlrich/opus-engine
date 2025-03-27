@@ -106,7 +106,7 @@ public:
     // Build view matrix
     math::matrix4x4<float> view;
     // Set rotation part of view matrix (transposed basis vectors)
-    view(0, 0)= right.x;
+    view(0, 0) = right.x;
     view(0, 1) = up.x;
     view(0, 2) = forward.x;
     view(1, 0) = right.y;
