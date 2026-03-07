@@ -60,8 +60,7 @@ public:
 		return res;
 	}
 
-	// Uses arbitrary axis rotation formula (Rodrigues' rotation formula basis)
-	// Axis must be normalized.
+	// Uses Rodrigues' rotation formula. Axis must be normalized.
 	[[nodiscard]] static inline mat4 rotate(float angle_rad, const vec3 &axis) noexcept {
 		mat4 res = identity();
 		const float c = std::cos(angle_rad);
@@ -85,8 +84,15 @@ public:
 		return res;
 	}
 
-	// Right-handed perspective projection (Standard for OpenGL)
-	// For Vulkan, you may need to invert the Y-axis (m[5] *= -1) and adjust depth range.
+	[[nodiscard]] constexpr mat4 transposed() const noexcept {
+		mat4 res;
+		for (int c = 0; c < 4; ++c)
+			for (int r = 0; r < 4; ++r)
+				res.m[r * 4 + c] = m[c * 4 + r];
+		return res;
+	}
+
+	// Right-handed perspective projection.
 	[[nodiscard]] static inline mat4 perspective(float fov_y_rad, float aspect, float n,
 	                                             float f) noexcept {
 		mat4 res;
@@ -101,7 +107,21 @@ public:
 		return res;
 	}
 
-	// Constructs a right-handed view matrix
+	// Right-handed orthographic projection.
+	[[nodiscard]] static constexpr mat4 ortho(float left, float right, float bottom, float top,
+	                                          float near_val, float far_val) noexcept {
+		mat4 res;
+		res.m[0] = 2.0f / (right - left);
+		res.m[5] = 2.0f / (top - bottom);
+		res.m[10] = -2.0f / (far_val - near_val);
+		res.m[12] = -(right + left) / (right - left);
+		res.m[13] = -(top + bottom) / (top - bottom);
+		res.m[14] = -(far_val + near_val) / (far_val - near_val);
+		res.m[15] = 1.0f;
+		return res;
+	}
+
+	// Right-handed view matrix.
 	[[nodiscard]] static inline mat4 look_at(const vec3 &eye, const vec3 &center,
 	                                         const vec3 &up) noexcept {
 		const vec3 f = (center - eye).normalized();

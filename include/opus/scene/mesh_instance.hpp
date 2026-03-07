@@ -21,22 +21,20 @@ public:
 
 	mesh_instance() = default;
 
-	// Constructs GPU buffers from generic spans of data
 	mesh_instance(std::span<const vertex> vertices, std::span<const uint16_t> indices) noexcept {
 		sg_buffer_desc vbuf_desc = {};
-		vbuf_desc.usage.vertex_buffer = true; // Use explicit modern flag
+		vbuf_desc.usage.vertex_buffer = true;
 		vbuf_desc.data = {vertices.data(), vertices.size_bytes()};
 		bind.vertex_buffers[0] = sg_make_buffer(&vbuf_desc);
 
 		sg_buffer_desc ibuf_desc = {};
-		ibuf_desc.usage.index_buffer = true; // Use explicit modern flag
+		ibuf_desc.usage.index_buffer = true;
 		ibuf_desc.data = {indices.data(), indices.size_bytes()};
 		bind.index_buffer = sg_make_buffer(&ibuf_desc);
 
 		index_count = static_cast<int>(indices.size());
 	}
 
-	// Factory method for testing
 	[[nodiscard]] static mesh_instance sphere(float radius, int sectors, int rings) {
 		std::vector<vertex> vertices;
 		std::vector<uint16_t> indices;
@@ -71,7 +69,6 @@ public:
 		return mesh_instance(vertices, indices);
 	}
 
-	// Generates a flat subdivided plane on the XZ axis
 	[[nodiscard]] static mesh_instance plane(float width, float depth, int width_segments = 1,
 	                                         int depth_segments = 1) {
 		std::vector<vertex> vertices;
@@ -99,14 +96,13 @@ public:
 				uint16_t next = current + width_segments + 1;
 
 				indices.insert(indices.end(),
-				               {current, next, static_cast<uint16_t>(current + 1),
-				                static_cast<uint16_t>(current + 1), next, static_cast<uint16_t>(next + 1)});
+				               {current, static_cast<uint16_t>(current + 1), next,
+				                static_cast<uint16_t>(current + 1), static_cast<uint16_t>(next + 1), next});
 			}
 		}
 		return mesh_instance(vertices, indices);
 	}
 
-	// Generates a 24-vertex cube (duplicate vertices for hard-edge flat shading)
 	[[nodiscard]] static mesh_instance cube(float width, float height, float depth) {
 		std::vector<vertex> vertices;
 		std::vector<uint16_t> indices;
@@ -117,7 +113,6 @@ public:
 		float hh = height * 0.5f;
 		float hd = depth * 0.5f;
 
-		// Helper lambda to construct individual faces with correct winding
 		auto add_face = [&](math::vec3 n, math::vec3 bl, math::vec3 br, math::vec3 tr, math::vec3 tl) {
 			uint16_t i = static_cast<uint16_t>(vertices.size());
 			vertices.push_back({bl, n});
@@ -125,11 +120,10 @@ public:
 			vertices.push_back({tr, n});
 			vertices.push_back({tl, n});
 			indices.insert(indices.end(),
-			               {i, static_cast<uint16_t>(i + 1), static_cast<uint16_t>(i + 2), i,
-			                static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 3)});
+			               {i, static_cast<uint16_t>(i + 2), static_cast<uint16_t>(i + 1), i,
+			                static_cast<uint16_t>(i + 3), static_cast<uint16_t>(i + 2)});
 		};
 
-		// Construct 6 faces (Normal, Bottom-Left, Bottom-Right, Top-Right, Top-Left)
 		add_face(math::vec3(0, 0, 1), math::vec3(-hw, -hh, hd), math::vec3(hw, -hh, hd),
 		         math::vec3(hw, hh, hd), math::vec3(-hw, hh, hd)); // Front
 		add_face(math::vec3(0, 0, -1), math::vec3(hw, -hh, -hd), math::vec3(-hw, -hh, -hd),
@@ -146,7 +140,6 @@ public:
 		return mesh_instance(vertices, indices);
 	}
 
-	// Generates a Torus (donut shape)
 	[[nodiscard]] static mesh_instance torus(float radius, float tube_radius, int radial_segments,
 	                                         int tubular_segments) {
 		std::vector<vertex> vertices;
@@ -163,11 +156,9 @@ public:
 			for (int t = 0; t <= tubular_segments; ++t) {
 				float v = (float)t / tubular_segments * PI2;
 
-				// Calculate the cross section relative to the center of the tube
 				float cx = std::cos(v) * tube_radius;
 				float cy = std::sin(v) * tube_radius;
 
-				// Position on the main ring
 				float px = center.x + cx * std::cos(u);
 				float py = cy;
 				float pz = center.z + cx * std::sin(u);

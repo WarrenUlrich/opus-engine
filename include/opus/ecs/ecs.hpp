@@ -3,7 +3,6 @@
 #include <bitset>
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -11,7 +10,7 @@
 
 namespace ecs {
 
-// 1. Generational Entity ID prevents bugs when old IDs are reused
+// Generational entity ID: version increments on reuse to invalidate stale handles.
 struct entity_id {
 	uint32_t index;
 	uint32_t version;
@@ -21,12 +20,11 @@ struct entity_id {
 namespace detail {
 const uint32_t NULL_INDEX = ~0u;
 
-// 2. Sparse Set: Keeps components packed contiguously in memory
-// without allocating space for entities that don't own them.
+// Sparse set: components packed contiguously in memory.
 template <typename T> struct sparse_set {
 	std::vector<T> data;
 	std::vector<uint32_t> packed_entities;
-	std::vector<uint32_t> sparse; // Maps entity index to packed data index
+	std::vector<uint32_t> sparse;
 
 	void insert(uint32_t entity_idx, T &&component) {
 		if (entity_idx >= sparse.size()) {
@@ -37,7 +35,7 @@ template <typename T> struct sparse_set {
 			packed_entities.push_back(entity_idx);
 			data.push_back(std::forward<T>(component));
 		} else {
-			data[sparse[entity_idx]] = std::forward<T>(component); // Overwrite
+			data[sparse[entity_idx]] = std::forward<T>(component);
 		}
 	}
 
@@ -46,7 +44,7 @@ template <typename T> struct sparse_set {
 			uint32_t packed_idx = sparse[entity_idx];
 			uint32_t last_entity = packed_entities.back();
 
-			// Swap with the last element to keep 'data' contiguous, then pop
+			// Swap-and-pop to keep data contiguous
 			data[packed_idx] = std::move(data.back());
 			packed_entities[packed_idx] = last_entity;
 
@@ -91,7 +89,7 @@ public:
 		_erase_components_impl(entity.index, mask, std::index_sequence_for<Components...>{});
 
 		mask.reset();
-		_entity_versions[entity.index]++; // Increment version to invalidate old handles
+		_entity_versions[entity.index]++;
 		_inactive_indices.push_back(entity.index);
 	}
 

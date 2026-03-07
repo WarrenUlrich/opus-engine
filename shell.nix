@@ -18,6 +18,8 @@ pkgs.mkShell {
 
     glm
     gcc
+
+    python3
   ];
 
   # Sokol uses dlopen() to load graphics drivers at runtime.

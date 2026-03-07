@@ -9,8 +9,12 @@
 #include "scene/debug_grid.hpp"
 #include "scene/light_grid.hpp"
 #include "scene/lighting.hpp"
+#include "scene/material.hpp"
 #include "scene/mesh_instance.hpp"
 #include "scene/renderer.hpp"
+#include "scene/shadow_map.hpp"
+#include "scene/ssao.hpp"
+#include "scene/tonemap.hpp"
 #include "scene/transform.hpp"
 
 #include "ecs/ecs.hpp"

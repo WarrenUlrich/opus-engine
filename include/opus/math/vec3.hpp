@@ -62,15 +62,9 @@ public:
 	[[nodiscard]] friend constexpr vec3 operator*(vec3 lhs, const vec3 &rhs) noexcept {
 		return lhs *= rhs;
 	}
-	[[nodiscard]] friend constexpr vec3 operator*(vec3 lhs, float s) noexcept {
-		return lhs *= s;
-	}
-	[[nodiscard]] friend constexpr vec3 operator*(float s, vec3 rhs) noexcept {
-		return rhs *= s;
-	}
-	[[nodiscard]] friend constexpr vec3 operator/(vec3 lhs, float s) noexcept {
-		return lhs /= s;
-	}
+	[[nodiscard]] friend constexpr vec3 operator*(vec3 lhs, float s) noexcept { return lhs *= s; }
+	[[nodiscard]] friend constexpr vec3 operator*(float s, vec3 rhs) noexcept { return rhs *= s; }
+	[[nodiscard]] friend constexpr vec3 operator/(vec3 lhs, float s) noexcept { return lhs /= s; }
 
 	[[nodiscard]] constexpr float length_squared() const noexcept { return x * x + y * y + z * z; }
 
@@ -99,16 +93,14 @@ public:
 	return a + (b - a) * t;
 }
 
-// Reflects an incident vector 'i' off a surface with normal 'n'.
-// 'n' must be normalized. 'i' points towards the surface.
-// Essential for specular highlights (Phong/Blinn-Phong) and environment mapping.
+// Reflects incident vector 'i' off a surface with normal 'n'.
+// 'n' must be normalized; 'i' points towards the surface.
 [[nodiscard]] constexpr vec3 reflect(const vec3 &i, const vec3 &n) noexcept {
 	return i - n * (2.0f * dot(i, n));
 }
 
-// Computes the refraction vector based on Snell's law.
-// 'eta' is the relative index of refraction (eta_i / eta_t).
-// Returns a zero vector on total internal reflection.
+// Refraction via Snell's law. 'eta' = eta_i / eta_t.
+// Returns zero vector on total internal reflection.
 [[nodiscard]] inline vec3 refract(const vec3 &i, const vec3 &n, float eta) noexcept {
 	const float cos_theta_i = dot(-i, n);
 	const float sin2_theta_t = eta * eta * (1.0f - cos_theta_i * cos_theta_i);

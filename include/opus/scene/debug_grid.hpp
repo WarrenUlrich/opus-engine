@@ -6,24 +6,11 @@
 
 namespace scene {
 
-// ─── Debug Grid ──────────────────────────────────────────────────────────────
-//
-// Draws a flat grid on the XZ plane with colored axis indicators:
-//   Red   = +X
-//   Green = +Y
-//   Blue  = +Z
-//
-// Self-contained: owns its own shader & pipeline (SG_PRIMITIVETYPE_LINES,
-// per-vertex color, no lighting). Call init() once after sg_setup(), then
-// draw(vp) each frame.
-
 class debug_grid {
 public:
 	debug_grid() = default;
 
-	/// Create GPU resources.  Call once after sg_setup().
 	void init(int half_extent = 10, float spacing = 1.0f) {
-		// ── Shaders (trivial position + color pass-through) ──────────
 		const char *vs_src = R"(
 			#version 330
 			layout(location=0) in vec3 position;
@@ -54,22 +41,22 @@ public:
 
 		sg_pipeline_desc pip = {};
 		pip.shader = sg_make_shader(&shd);
-		pip.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3; // position
-		pip.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT4; // color
+		pip.layout.attrs[0].format = SG_VERTEXFORMAT_FLOAT3;
+		pip.layout.attrs[1].format = SG_VERTEXFORMAT_FLOAT4;
 		pip.primitive_type = SG_PRIMITIVETYPE_LINES;
 		pip.depth.write_enabled = true;
 		pip.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
 		pip.colors[0].blend.enabled = true;
 		pip.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
 		pip.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+		pip.colors[0].pixel_format = SG_PIXELFORMAT_RGBA16F;
+		pip.depth.pixel_format = SG_PIXELFORMAT_DEPTH;
+		pip.sample_count = 1;
 		pipeline_ = sg_make_pipeline(&pip);
 
-		// ── Geometry ─────────────────────────────────────────────────
 		build_geometry(half_extent, spacing);
 	}
 
-	/// Render the grid + axes.  Call inside an active pass, after the
-	/// main scene pipeline has drawn (so depth-testing works naturally).
 	void draw(const math::mat4 &vp) const {
 		sg_apply_pipeline(pipeline_);
 		sg_apply_bindings(&bind_);
@@ -94,60 +81,50 @@ private:
 
 	void build_geometry(int half, float sp) {
 		std::vector<color_vertex> verts;
-
-		// Reserve: grid = 2*(2*half+1)*2 verts,  axes = 6 verts
 		verts.reserve(static_cast<size_t>((2 * half + 1) * 4 + 6));
 
 		const float extent = half * sp;
-
-		// Grid color: subtle gray, semi-transparent
 		const float gc[4] = {0.35f, 0.35f, 0.35f, 0.45f};
 
-		// ── Grid lines parallel to X (varying Z) ──
+		// Grid lines parallel to X (varying Z)
 		for (int i = -half; i <= half; ++i) {
 			float z = i * sp;
-			// Skip origin lines — axes will draw over them
 			if (i == 0)
-				continue;
+				continue; // axes draw over origin
 			verts.push_back({{-extent, 0.0f, z}, {gc[0], gc[1], gc[2], gc[3]}});
-			verts.push_back({{ extent, 0.0f, z}, {gc[0], gc[1], gc[2], gc[3]}});
+			verts.push_back({{extent, 0.0f, z}, {gc[0], gc[1], gc[2], gc[3]}});
 		}
 
-		// ── Grid lines parallel to Z (varying X) ──
+		// Grid lines parallel to Z (varying X)
 		for (int i = -half; i <= half; ++i) {
 			float x = i * sp;
 			if (i == 0)
 				continue;
 			verts.push_back({{x, 0.0f, -extent}, {gc[0], gc[1], gc[2], gc[3]}});
-			verts.push_back({{x, 0.0f,  extent}, {gc[0], gc[1], gc[2], gc[3]}});
+			verts.push_back({{x, 0.0f, extent}, {gc[0], gc[1], gc[2], gc[3]}});
 		}
 
-		// ── Colored Axes (drawn brighter & slightly above grid to win depth) ──
-		const float y = 0.001f; // tiny offset so axes aren't z-fought away
+		// Axis lines: offset slightly above grid to avoid z-fighting
+		const float y = 0.001f;
 		const float axis_len = extent;
 
-		// X axis — Red  (negative half dimmed)
+		// X axis (red, negative half dimmed)
 		verts.push_back({{-axis_len, y, 0.0f}, {0.8f, 0.2f, 0.2f, 0.5f}});
-		verts.push_back({{     0.0f, y, 0.0f}, {0.8f, 0.2f, 0.2f, 0.5f}});
-		verts.push_back({{     0.0f, y, 0.0f}, {1.0f, 0.2f, 0.2f, 1.0f}});
-		verts.push_back({{ axis_len, y, 0.0f}, {1.0f, 0.2f, 0.2f, 1.0f}});
+		verts.push_back({{0.0f, y, 0.0f}, {0.8f, 0.2f, 0.2f, 0.5f}});
+		verts.push_back({{0.0f, y, 0.0f}, {1.0f, 0.2f, 0.2f, 1.0f}});
+		verts.push_back({{axis_len, y, 0.0f}, {1.0f, 0.2f, 0.2f, 1.0f}});
 
-		// Y axis — Green  (upward only; grid is on XZ so negative Y is below)
-		verts.push_back({{0.0f,      0.0f, 0.0f}, {0.2f, 0.8f, 0.2f, 0.5f}});
-		verts.push_back({{0.0f,      0.0f, 0.0f}, {0.2f, 0.8f, 0.2f, 0.5f}}); // origin
-		// Replace with actual line:
-		verts.pop_back();
-		verts.pop_back();
-		verts.push_back({{0.0f,      -axis_len, 0.0f}, {0.2f, 0.8f, 0.2f, 0.4f}});
-		verts.push_back({{0.0f,            0.0f, 0.0f}, {0.2f, 0.8f, 0.2f, 0.4f}});
-		verts.push_back({{0.0f,            0.0f, 0.0f}, {0.2f, 1.0f, 0.2f, 1.0f}});
-		verts.push_back({{0.0f,       axis_len, 0.0f}, {0.2f, 1.0f, 0.2f, 1.0f}});
+		// Y axis (green, negative half dimmed)
+		verts.push_back({{0.0f, -axis_len, 0.0f}, {0.2f, 0.8f, 0.2f, 0.4f}});
+		verts.push_back({{0.0f, 0.0f, 0.0f}, {0.2f, 0.8f, 0.2f, 0.4f}});
+		verts.push_back({{0.0f, 0.0f, 0.0f}, {0.2f, 1.0f, 0.2f, 1.0f}});
+		verts.push_back({{0.0f, axis_len, 0.0f}, {0.2f, 1.0f, 0.2f, 1.0f}});
 
-		// Z axis — Blue  (negative half dimmed)
+		// Z axis (blue, negative half dimmed)
 		verts.push_back({{0.0f, y, -axis_len}, {0.2f, 0.2f, 0.8f, 0.5f}});
-		verts.push_back({{0.0f, y,      0.0f}, {0.2f, 0.2f, 0.8f, 0.5f}});
-		verts.push_back({{0.0f, y,      0.0f}, {0.2f, 0.2f, 1.0f, 1.0f}});
-		verts.push_back({{0.0f, y,  axis_len}, {0.2f, 0.2f, 1.0f, 1.0f}});
+		verts.push_back({{0.0f, y, 0.0f}, {0.2f, 0.2f, 0.8f, 0.5f}});
+		verts.push_back({{0.0f, y, 0.0f}, {0.2f, 0.2f, 1.0f, 1.0f}});
+		verts.push_back({{0.0f, y, axis_len}, {0.2f, 0.2f, 1.0f, 1.0f}});
 
 		vertex_count_ = static_cast<int>(verts.size());
 

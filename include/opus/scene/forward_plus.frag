@@ -1,39 +1,23 @@
 #version 330
 
-// ─── Forward+ (Tiled Forward) Fragment Shader ────────────────────────────────
-//
-// Instead of evaluating all scene lights, this shader:
-//   1. Determines which screen tile this fragment belongs to
-//   2. Reads the tile's light list from a texture (populated by CPU culling)
-//   3. Evaluates only the lights assigned to that tile
-//
-// This scales to 1000+ lights because each fragment only processes the
-// handful of lights whose range overlaps its screen tile.
-
-// ─── Tiling Constants ────────────────────────────────────────────────────────
-
 const int   TILE_SIZE            = 16;
-const int   MAX_LIGHTS_PER_TILE  = 64;
-const int   TILE_DATA_STRIDE     = 17;   // ceil((1 + MAX_LIGHTS_PER_TILE) / 4)
+const int   MAX_LIGHTS_PER_TILE  = 128;
+const int   TILE_DATA_STRIDE     = 33;   // ceil((1 + MAX_LIGHTS_PER_TILE) / 4)
 const float PI                   = 3.14159265359;
-
-// ─── Varyings ────────────────────────────────────────────────────────────────
 
 in vec3 v_world_pos;
 in vec3 v_normal;
+in vec4 v_light_pos;
 
 out vec4 frag_color;
-
-// ─── Per-Object Uniforms ─────────────────────────────────────────────────────
 
 uniform vec4 material;        // {metallic, roughness, ao, 0}
 uniform vec4 albedo;          // {r, g, b, alpha}
 uniform vec4 camera_pos;      // {x, y, z, num_lights_total}
 uniform vec4 ambient;         // {r, g, b, 0}
 uniform vec4 tile_info;       // {num_tiles_x, TILE_SIZE, 0, 0}
+uniform vec4 shadow_params;   // {map_resolution, min_bias, strength, max_bias}
 
-// ─── Light Data Textures (set by CPU each frame) ────────────────────────────
-//
 // light_data_tex: RGBA32F, width=MAX_LIGHTS, height=4
 //   row 0: (pos.x, pos.y, pos.z, type)
 //   row 1: (dir.x, dir.y, dir.z, range)
@@ -47,8 +31,8 @@ uniform vec4 tile_info;       // {num_tiles_x, TILE_SIZE, 0, 0}
 
 uniform sampler2D light_data_tex;
 uniform sampler2D tile_data_tex;
-
-// ─── Tile Data Access ────────────────────────────────────────────────────────
+uniform sampler2D shadow_map_tex;
+uniform sampler2D ssao_tex;
 
 float fetch_tile_value(int tile_x, int tile_y, int p) {
     int base_x = tile_x * TILE_DATA_STRIDE;
@@ -57,8 +41,7 @@ float fetch_tile_value(int tile_x, int tile_y, int p) {
     return texelFetch(tile_data_tex, ivec2(texel_x, tile_y), 0)[channel];
 }
 
-// ─── PBR: Normal Distribution (GGX / Trowbridge-Reitz) ──────────────────────
-
+// Normal Distribution (GGX / Trowbridge-Reitz)
 float distribution_ggx(vec3 N, vec3 H, float roughness) {
     float a    = roughness * roughness;
     float a2   = a * a;
@@ -67,8 +50,7 @@ float distribution_ggx(vec3 N, vec3 H, float roughness) {
     return a2 / (PI * d * d);
 }
 
-// ─── PBR: Geometry (Schlick-GGX + Smith) ─────────────────────────────────────
-
+// Geometry (Schlick-GGX + Smith)
 float geometry_schlick(float NdV, float roughness) {
     float r = roughness + 1.0;
     float k = (r * r) / 8.0;
@@ -80,14 +62,12 @@ float geometry_smith(vec3 N, vec3 V, vec3 L, float roughness) {
          * geometry_schlick(max(dot(N, L), 0.0), roughness);
 }
 
-// ─── PBR: Fresnel (Schlick Approximation) ────────────────────────────────────
-
+// Fresnel (Schlick approximation)
 vec3 fresnel_schlick(float cos_theta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
-// ─── Attenuation: Smooth Windowed Inverse-Square ─────────────────────────────
-
+// Smooth windowed inverse-square attenuation
 float attenuation(float dist, float range) {
     float d2      = dist * dist;
     float factor  = d2 / (range * range);
@@ -95,7 +75,34 @@ float attenuation(float dist, float range) {
     return (falloff * falloff) / max(d2, 0.0001);
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+// Shadow mapping with 3x3 PCF (slope-scaled bias)
+float calc_shadow(vec3 N, vec3 L) {
+    vec3 proj = v_light_pos.xyz / v_light_pos.w;
+    proj = proj * 0.5 + 0.5;
+
+    if (proj.x < 0.0 || proj.x > 1.0 ||
+        proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
+        return 1.0;
+
+    float current_depth = proj.z;
+    float min_bias      = shadow_params.y;
+    float strength      = shadow_params.z;
+    float max_bias      = shadow_params.w;
+    float bias          = max(max_bias * (1.0 - max(dot(N, L), 0.0)), min_bias);
+
+    float shadow     = 0.0;
+    float texel_size = 1.0 / shadow_params.x;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            float pcf_depth = texture(shadow_map_tex,
+                proj.xy + vec2(x, y) * texel_size).r;
+            shadow += (current_depth - bias > pcf_depth) ? 1.0 : 0.0;
+        }
+    }
+    shadow /= 9.0;
+
+    return 1.0 - shadow * strength;
+}
 
 void main() {
     vec3 N = normalize(v_normal);
@@ -109,12 +116,10 @@ void main() {
     // Dielectrics reflect ~4% at normal incidence; metals use albedo as F0
     vec3 F0 = mix(vec3(0.04), base, metallic);
 
-    // ── Determine tile ──
     ivec2 tile = ivec2(gl_FragCoord.xy) / TILE_SIZE;
     int count  = int(fetch_tile_value(tile.x, tile.y, 0));
     count = min(count, MAX_LIGHTS_PER_TILE);
 
-    // ── Accumulate lighting from this tile's light list ──
     vec3 Lo = vec3(0.0);
 
     for (int i = 0; i < MAX_LIGHTS_PER_TILE; ++i) {
@@ -122,7 +127,6 @@ void main() {
 
         int light_idx = int(fetch_tile_value(tile.x, tile.y, i + 1));
 
-        // Fetch light properties from data texture
         vec4 pos_type  = texelFetch(light_data_tex, ivec2(light_idx, 0), 0);
         vec4 dir_range = texelFetch(light_data_tex, ivec2(light_idx, 1), 0);
         vec4 color_int = texelFetch(light_data_tex, ivec2(light_idx, 2), 0);
@@ -135,12 +139,12 @@ void main() {
         float atten = 1.0;
 
         if (type == 0) {
-            // ── Directional ──
             L = normalize(-dir_range.xyz);
+            atten *= calc_shadow(N, L);
         } else {
-            // ── Point / Spot ──
             vec3  to_light = pos_type.xyz - v_world_pos;
             float dist     = length(to_light);
+            if (dist > dir_range.w) continue;   // per-fragment range cull
             L              = to_light / dist;
             atten          = attenuation(dist, dir_range.w);
 
@@ -155,7 +159,6 @@ void main() {
 
         vec3 H = normalize(V + L);
 
-        // Cook-Torrance specular BRDF
         float D = distribution_ggx(N, H, roughness);
         float G = geometry_smith(N, V, L, roughness);
         vec3  F = fresnel_schlick(max(dot(H, V), 0.0), F0);
@@ -171,12 +174,11 @@ void main() {
         Lo += (kD * base / PI + specular) * light_color * atten * NdL;
     }
 
-    // Ambient
-    vec3 color = ambient.xyz * base * ao + Lo;
+    // Screen-space ambient occlusion
+    vec2 ssao_uv = gl_FragCoord.xy / tile_info.zw;
+    float ssao_val = texture(ssao_tex, ssao_uv).r;
 
-    // Reinhard tone mapping + gamma correction
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    vec3 color = ambient.xyz * base * ao * ssao_val + Lo;
 
     frag_color = vec4(color, albedo.w);
 }
