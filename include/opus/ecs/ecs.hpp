@@ -18,7 +18,7 @@ struct entity_id {
 };
 
 namespace detail {
-const uint32_t NULL_INDEX = ~0u;
+constexpr uint32_t NULL_INDEX = ~0u;
 
 // Sparse set: components packed contiguously in memory.
 template <typename T> struct sparse_set {
@@ -67,10 +67,12 @@ public:
 		if (!_inactive_indices.empty()) {
 			idx = _inactive_indices.back();
 			_inactive_indices.pop_back();
+			_alive[idx] = true;
 		} else {
 			idx = static_cast<uint32_t>(_entity_versions.size());
 			_entity_versions.push_back(0);
 			_component_masks.push_back(_component_bitset());
+			_alive.push_back(true);
 		}
 		return {idx, _entity_versions[idx]};
 	}
@@ -91,6 +93,7 @@ public:
 		mask.reset();
 		_entity_versions[entity.index]++;
 		_inactive_indices.push_back(entity.index);
+		_alive[entity.index] = false;
 	}
 
 	template <typename Component>
@@ -145,6 +148,22 @@ public:
 		return &_get_component_unchecked<Component>(id.index);
 	}
 
+	// Iterate every living entity (regardless of components).
+	void for_each_alive(auto &&fn) {
+		for (uint32_t i = 0; i < _alive.size(); ++i) {
+			if (_alive[i]) {
+				fn(entity_id{i, _entity_versions[i]});
+			}
+		}
+	}
+
+	[[nodiscard]] uint32_t alive_count() const noexcept {
+		uint32_t n = 0;
+		for (uint32_t i = 0; i < _alive.size(); ++i)
+			if (_alive[i]) ++n;
+		return n;
+	}
+
 	template <typename... QueryComponents> void for_each_entity(auto &&fn) {
 		static_assert(sizeof...(QueryComponents) > 0, "Query must have at least one component.");
 		using fn_t = std::decay_t<decltype(fn)>;
@@ -176,6 +195,7 @@ private:
 	std::vector<_component_bitset> _component_masks;
 	std::vector<uint32_t> _entity_versions;
 	std::vector<uint32_t> _inactive_indices;
+	std::vector<bool> _alive;
 
 	std::tuple<detail::sparse_set<Components>...> _components;
 
@@ -189,7 +209,9 @@ private:
 	}
 
 	template <typename... QueryComponents> static constexpr _component_bitset _get_query_bitset() {
-		return (... | (1ULL << _get_bitset_index<QueryComponents>()));
+		_component_bitset bits;
+		(bits.set(_get_bitset_index<QueryComponents>()), ...);
+		return bits;
 	}
 
 	template <typename Component> Component &_get_component_unchecked(uint32_t entity_idx) noexcept {

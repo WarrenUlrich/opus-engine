@@ -52,7 +52,7 @@ public:
 	}
 
 	void draw_gbuffer_mesh(const sg_bindings &mesh_bind, int index_count,
-	                        const gbuf_uniforms &uniforms) {
+	                       const gbuf_uniforms &uniforms) {
 		sg_apply_bindings(&mesh_bind);
 		sg_apply_uniforms(0, SG_RANGE(uniforms));
 		sg_draw(0, index_count, 1);
@@ -70,12 +70,9 @@ public:
 				u.samples[i][0] = kernel_[i].x;
 				u.samples[i][1] = kernel_[i].y;
 				u.samples[i][2] = kernel_[i].z;
-				u.samples[i][3] = 0.0f;
 			}
-			u.ssao_params[0] = static_cast<float>(width_);
-			u.ssao_params[1] = static_cast<float>(height_);
-			u.ssao_params[2] = 0.0f;
-			u.ssao_params[3] = 0.0f;
+			u.ssao_params[0] = float(width_);
+			u.ssao_params[1] = float(height_);
 			u.projection = projection;
 
 			sg_pass pass = {};
@@ -99,11 +96,7 @@ public:
 
 		// Blur pass
 		{
-			blur_uniforms u{};
-			u.texel_size[0] = 1.0f / static_cast<float>(width_);
-			u.texel_size[1] = 1.0f / static_cast<float>(height_);
-			u.texel_size[2] = 0.0f;
-			u.texel_size[3] = 0.0f;
+			blur_uniforms u{.texel_size = {1.0f / float(width_), 1.0f / float(height_)}};
 
 			sg_pass pass = {};
 			pass.action = blur_pass_action_;
@@ -128,22 +121,20 @@ public:
 
 	void destroy() {
 		destroy_targets();
-		if (noise_tex_view_.id)
-			sg_destroy_view(noise_tex_view_);
-		if (noise_img_.id)
-			sg_destroy_image(noise_img_);
-		if (noise_sampler_.id)
-			sg_destroy_sampler(noise_sampler_);
-		if (nearest_sampler_.id)
-			sg_destroy_sampler(nearest_sampler_);
-		if (gbuf_pipeline_.id)
-			sg_destroy_pipeline(gbuf_pipeline_);
-		if (ssao_pipeline_.id)
-			sg_destroy_pipeline(ssao_pipeline_);
-		if (blur_pipeline_.id)
-			sg_destroy_pipeline(blur_pipeline_);
-		if (fsq_vbuf_.id)
-			sg_destroy_buffer(fsq_vbuf_);
+		auto sd = [](auto &r, auto fn) {
+			if (r.id) {
+				fn(r);
+				r = {};
+			}
+		};
+		sd(noise_tex_view_, sg_destroy_view);
+		sd(noise_img_, sg_destroy_image);
+		sd(noise_sampler_, sg_destroy_sampler);
+		sd(nearest_sampler_, sg_destroy_sampler);
+		sd(gbuf_pipeline_, sg_destroy_pipeline);
+		sd(ssao_pipeline_, sg_destroy_pipeline);
+		sd(blur_pipeline_, sg_destroy_pipeline);
+		sd(fsq_vbuf_, sg_destroy_buffer);
 	}
 
 private:
@@ -279,8 +270,8 @@ private:
 		// Single oversized triangle covering the entire viewport
 		float verts[] = {
 		    -1.0f, -1.0f, // 0
-		     3.0f, -1.0f, // 1
-		    -1.0f,  3.0f, // 2
+		    3.0f,  -1.0f, // 1
+		    -1.0f, 3.0f,  // 2
 		};
 		sg_buffer_desc bd = {};
 		bd.data = SG_RANGE(verts);
@@ -426,17 +417,27 @@ private:
 	// ---------- Dynamic target management ----------
 
 	void create_targets(int w, int h) {
-		// G-buffer: RGBA16F colour + DEPTH
-		{
+		auto make_target = [&](sg_pixel_format fmt, const char *label, sg_image &img, sg_view &att_view,
+		                       sg_view &tex_view) {
 			sg_image_desc d = {};
 			d.usage.color_attachment = true;
 			d.width = w;
 			d.height = h;
-			d.pixel_format = SG_PIXELFORMAT_RGBA16F;
+			d.pixel_format = fmt;
 			d.sample_count = 1;
-			d.label = "ssao_gbuf_color";
-			gbuf_color_img_ = sg_make_image(&d);
+			d.label = label;
+			img = sg_make_image(&d);
+			sg_view_desc va = {};
+			va.color_attachment.image = img;
+			att_view = sg_make_view(&va);
+			sg_view_desc vt = {};
+			vt.texture.image = img;
+			tex_view = sg_make_view(&vt);
+		};
 
+		make_target(SG_PIXELFORMAT_RGBA16F, "ssao_gbuf_color", gbuf_color_img_, gbuf_color_att_view_,
+		            gbuf_tex_view_);
+		{
 			sg_image_desc dd = {};
 			dd.usage.depth_stencil_attachment = true;
 			dd.width = w;
@@ -445,99 +446,43 @@ private:
 			dd.sample_count = 1;
 			dd.label = "ssao_gbuf_depth";
 			gbuf_depth_img_ = sg_make_image(&dd);
-
-			sg_view_desc va = {};
-			va.color_attachment.image = gbuf_color_img_;
-			gbuf_color_att_view_ = sg_make_view(&va);
-
 			sg_view_desc vda = {};
 			vda.depth_stencil_attachment.image = gbuf_depth_img_;
 			gbuf_depth_att_view_ = sg_make_view(&vda);
-
-			sg_view_desc vt = {};
-			vt.texture.image = gbuf_color_img_;
-			gbuf_tex_view_ = sg_make_view(&vt);
-
-			gbuf_att_ = {};
-			gbuf_att_.colors[0] = gbuf_color_att_view_;
-			gbuf_att_.depth_stencil = gbuf_depth_att_view_;
 		}
+		gbuf_att_ = {};
+		gbuf_att_.colors[0] = gbuf_color_att_view_;
+		gbuf_att_.depth_stencil = gbuf_depth_att_view_;
 
-		// SSAO raw: R32F
-		{
-			sg_image_desc d = {};
-			d.usage.color_attachment = true;
-			d.width = w;
-			d.height = h;
-			d.pixel_format = SG_PIXELFORMAT_R32F;
-			d.sample_count = 1;
-			d.label = "ssao_raw";
-			ssao_color_img_ = sg_make_image(&d);
+		make_target(SG_PIXELFORMAT_R32F, "ssao_raw", ssao_color_img_, ssao_color_att_view_,
+		            ssao_tex_view_);
+		ssao_att_ = {};
+		ssao_att_.colors[0] = ssao_color_att_view_;
 
-			sg_view_desc va = {};
-			va.color_attachment.image = ssao_color_img_;
-			ssao_color_att_view_ = sg_make_view(&va);
-
-			sg_view_desc vt = {};
-			vt.texture.image = ssao_color_img_;
-			ssao_tex_view_ = sg_make_view(&vt);
-
-			ssao_att_ = {};
-			ssao_att_.colors[0] = ssao_color_att_view_;
-		}
-
-		// Blur result: R32F
-		{
-			sg_image_desc d = {};
-			d.usage.color_attachment = true;
-			d.width = w;
-			d.height = h;
-			d.pixel_format = SG_PIXELFORMAT_R32F;
-			d.sample_count = 1;
-			d.label = "ssao_blur";
-			blur_color_img_ = sg_make_image(&d);
-
-			sg_view_desc va = {};
-			va.color_attachment.image = blur_color_img_;
-			blur_color_att_view_ = sg_make_view(&va);
-
-			sg_view_desc vt = {};
-			vt.texture.image = blur_color_img_;
-			blur_tex_view_ = sg_make_view(&vt);
-
-			blur_att_ = {};
-			blur_att_.colors[0] = blur_color_att_view_;
-		}
+		make_target(SG_PIXELFORMAT_R32F, "ssao_blur", blur_color_img_, blur_color_att_view_,
+		            blur_tex_view_);
+		blur_att_ = {};
+		blur_att_.colors[0] = blur_color_att_view_;
 	}
 
 	void destroy_targets() {
-		auto safe_destroy_view = [](sg_view &v) {
-			if (v.id) {
-				sg_destroy_view(v);
-				v = {};
+		auto sd = [](auto &r, auto fn) {
+			if (r.id) {
+				fn(r);
+				r = {};
 			}
 		};
-		auto safe_destroy_image = [](sg_image &img) {
-			if (img.id) {
-				sg_destroy_image(img);
-				img = {};
-			}
-		};
-
-		safe_destroy_view(gbuf_color_att_view_);
-		safe_destroy_view(gbuf_depth_att_view_);
-		safe_destroy_view(gbuf_tex_view_);
-		safe_destroy_image(gbuf_color_img_);
-		safe_destroy_image(gbuf_depth_img_);
-
-		safe_destroy_view(ssao_color_att_view_);
-		safe_destroy_view(ssao_tex_view_);
-		safe_destroy_image(ssao_color_img_);
-
-		safe_destroy_view(blur_color_att_view_);
-		safe_destroy_view(blur_tex_view_);
-		safe_destroy_image(blur_color_img_);
-
+		sd(gbuf_color_att_view_, sg_destroy_view);
+		sd(gbuf_depth_att_view_, sg_destroy_view);
+		sd(gbuf_tex_view_, sg_destroy_view);
+		sd(gbuf_color_img_, sg_destroy_image);
+		sd(gbuf_depth_img_, sg_destroy_image);
+		sd(ssao_color_att_view_, sg_destroy_view);
+		sd(ssao_tex_view_, sg_destroy_view);
+		sd(ssao_color_img_, sg_destroy_image);
+		sd(blur_color_att_view_, sg_destroy_view);
+		sd(blur_tex_view_, sg_destroy_view);
+		sd(blur_color_img_, sg_destroy_image);
 		width_ = 0;
 		height_ = 0;
 	}

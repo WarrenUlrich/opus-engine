@@ -9,7 +9,7 @@ inline constexpr int SHADOW_MAP_DEFAULT_RES = 2048;
 
 // Directional-light shadow map.
 // Renders the scene from the sun's perspective into an R32F colour
-// attachment (storing gl_FragCoord.z), which the Forward+ colour pass
+// attachment (storing gl_FragCoord.z), which the deferred light pass
 // samples to evaluate PCF-filtered shadows.
 
 class shadow_map {
@@ -118,20 +118,14 @@ public:
 	}
 
 	void destroy() {
-		if (color_att_view_.id)
-			sg_destroy_view(color_att_view_);
-		if (depth_att_view_.id)
-			sg_destroy_view(depth_att_view_);
-		if (shadow_tex_view_.id)
-			sg_destroy_view(shadow_tex_view_);
-		if (color_img_.id)
-			sg_destroy_image(color_img_);
-		if (depth_img_.id)
-			sg_destroy_image(depth_img_);
-		if (sampler_.id)
-			sg_destroy_sampler(sampler_);
-		if (pipeline_.id)
-			sg_destroy_pipeline(pipeline_);
+		auto sd = [](auto &r, auto fn) { if (r.id) { fn(r); r = {}; } };
+		sd(color_att_view_, sg_destroy_view);
+		sd(depth_att_view_, sg_destroy_view);
+		sd(shadow_tex_view_, sg_destroy_view);
+		sd(color_img_, sg_destroy_image);
+		sd(depth_img_, sg_destroy_image);
+		sd(sampler_, sg_destroy_sampler);
+		sd(pipeline_, sg_destroy_pipeline);
 	}
 
 	// Compute an orthographic light-space VP matrix for a directional light.

@@ -5,9 +5,8 @@
 #include "../math/vec3.hpp"
 
 namespace scene {
-class transform {
-public:
-	math::vec3 position{0.0f, 0.0f, 0.0f};
+struct transform {
+	math::vec3 position{};
 	math::quat rotation{};
 	math::vec3 scale{1.0f, 1.0f, 1.0f};
 

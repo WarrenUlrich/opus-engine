@@ -1,16 +1,18 @@
 #pragma once
 
-#include "transform.hpp"
+#include "../math/vec3.hpp"
+
+#include "sokol_gfx.h"
 
 #include <cmath>
+#include <cstdint>
 #include <numbers>
 #include <span>
 #include <vector>
 
 namespace scene {
 
-class mesh_instance {
-public:
+struct mesh_instance {
 	struct vertex {
 		math::vec3 position;
 		math::vec3 normal;
@@ -182,6 +184,16 @@ public:
 			}
 		}
 		return mesh_instance(vertices, indices);
+	}
+
+	// -- construct from obj_data ---------------------------------------------
+
+	[[nodiscard]] static mesh_instance from_obj(const auto &obj) noexcept {
+		return mesh_instance(
+		    std::span<const vertex>{
+		        reinterpret_cast<const vertex *>(obj.vertices.data()),
+		        obj.vertices.size()},
+		    std::span<const uint16_t>{obj.indices.data(), obj.indices.size()});
 	}
 
 	void destroy() noexcept {

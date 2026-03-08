@@ -20,6 +20,36 @@ public:
 		return {axis.x * s, axis.y * s, axis.z * s, std::cos(half)};
 	}
 
+	// Construct from Euler angles (pitch=X, yaw=Y, roll=Z) in radians.
+	// Rotation order: Z * Y * X (intrinsic ZYX / extrinsic XYZ).
+	[[nodiscard]] static inline quat from_euler(const vec3 &e) noexcept {
+		float cx = std::cos(e.x * 0.5f), sx = std::sin(e.x * 0.5f);
+		float cy = std::cos(e.y * 0.5f), sy = std::sin(e.y * 0.5f);
+		float cz = std::cos(e.z * 0.5f), sz = std::sin(e.z * 0.5f);
+		return {
+		    sx * cy * cz - cx * sy * sz,
+		    cx * sy * cz + sx * cy * sz,
+		    cx * cy * sz - sx * sy * cz,
+		    cx * cy * cz + sx * sy * sz,
+		};
+	}
+
+	// Decompose into Euler angles (pitch=X, yaw=Y, roll=Z) in radians.
+	[[nodiscard]] inline vec3 to_euler() const noexcept {
+		vec3 out;
+		float sinr = 2.0f * (w * x + y * z);
+		float cosr = 1.0f - 2.0f * (x * x + y * y);
+		out.x = std::atan2(sinr, cosr);
+		float sinp = 2.0f * (w * y - z * x);
+		out.y = (std::abs(sinp) >= 1.0f)
+		            ? std::copysign(1.5707963f, sinp)
+		            : std::asin(sinp);
+		float siny = 2.0f * (w * z + x * y);
+		float cosy = 1.0f - 2.0f * (y * y + z * z);
+		out.z = std::atan2(siny, cosy);
+		return out;
+	}
+
 	// Builds a rotation from a look direction (camera convention: -Z = forward).
 	// Extracts quaternion from the orthonormal basis via Shepperd's method.
 	[[nodiscard]] static inline quat
